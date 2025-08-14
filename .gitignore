@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+.venv/
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# FastAPI / Uvicorn
+*.log
+
+# Environment variables
+.env
+.env.*
+
+# Frontend / Node
+node_modules/
+.next/
+out/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Coverage / Testing
+.coverage
+htmlcov/
+pytest_cache/

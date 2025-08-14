@@ -1,0 +1,22 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend','.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      [
+        'run','deploy','coffee-backend',
+        '--image','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend',
+        '--region','${_REGION}',
+        '--platform','managed',
+        '--allow-unauthenticated',
+        '--add-cloudsql-instances','${_CLOUD_SQL_INSTANCE}',
+        '--set-env-vars','DATABASE_URL=postgresql://postgres:${_DB_PASS}@localhost:5432/coffee,INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE},JWT_SECRET=${_JWT_SECRET}'
+      ]
+substitutions:
+  _REGION: 'us-central1'
+  _CLOUD_SQL_INSTANCE: 'YOUR_PROJECT_ID:us-central1:coffee-db'
+  _DB_PASS: 'replace-me'
+  _JWT_SECRET: 'replace-me'
