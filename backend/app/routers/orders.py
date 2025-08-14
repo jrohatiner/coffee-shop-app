@@ -16,12 +16,28 @@ async def create_order(
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    db_order = models.Order(user_id=order.user_id, status=order.status)
+    # user_id comes from token
+    db_order = models.Order(user_id=current_user.id, status=order.status)
     db.add(db_order)
     db.commit()
     db.refresh(db_order)
 
+    # Validate stock first
+    product_map = {}  # cache products by id
     for item in order.items:
+        prod = product_map.get(item.product_id) or db.query(models.Product).filter(models.Product.id == item.product_id).first()
+        if not prod:
+            raise HTTPException(400, f"Product {item.product_id} does not exist")
+        product_map[item.product_id] = prod
+        if item.quantity <= 0:
+            raise HTTPException(400, f"Invalid quantity for product {prod.name}")
+        if prod.stock < item.quantity:
+            raise HTTPException(400, f"Insufficient stock for {prod.name}. Available: {prod.stock}, requested: {item.quantity}")
+
+    # Deduct stock and create items
+    for item in order.items:
+        prod = product_map[item.product_id]
+        prod.stock -= item.quantity
         db.add(
             models.OrderItem(
                 order_id=db_order.id,
@@ -29,11 +45,43 @@ async def create_order(
                 quantity=item.quantity,
             )
         )
+
     db.commit()
     db.refresh(db_order)
 
+    # Notify listeners
     await sio.emit("new_order")
+    await sio.emit("stock_update")
+
     return db_order
+
+@router.post("/{order_id}/cancel", response_model=schemas.OrderOut)
+async def cancel_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(auth.get_current_user),
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "Order not found")
+
+    if order.status == "cancelled":
+        return order
+
+    # Restock items when cancelling
+    for it in order.items:
+        prod = db.query(models.Product).filter(models.Product.id == it.product_id).first()
+        if prod:
+            prod.stock += it.quantity
+
+    order.status = "cancelled"
+    db.commit()
+    db.refresh(order)
+
+    await sio.emit("stock_update")
+    await sio.emit("order_cancelled", {"order_id": order.id})
+
+    return order
 
 @router.get("/{order_id}", response_model=schemas.OrderOut)
 def get_order(
