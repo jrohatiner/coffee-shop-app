@@ -227,7 +227,9 @@ from . import schemas, models
 from .database import SessionLocal
 import os
 
-SECRET_KEY = os.getenv("JWT_SECRET", "dev_secret_key")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY or not SECRET_KEY.strip() or SECRET_KEY == "dev_secret_key":
+    raise RuntimeError("JWT_SECRET environment variable is required and must not be insecure")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 

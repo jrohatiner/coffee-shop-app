@@ -4,10 +4,15 @@ from .database import Base, engine
 from . import models
 from .routers import auth as auth_router, dashboard, orders, inventory, reports, users
 from .websockets import init_websockets
+from .auth import get_jwt_secret
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Coffee Shop Ordering System", version="1.0.0")
+
+@app.on_event("startup")
+def startup_event():
+    get_jwt_secret()
 
 app.add_middleware(
     CORSMiddleware,
