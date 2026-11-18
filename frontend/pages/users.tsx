@@ -22,7 +22,7 @@ export default function Users(){
     catch{ toast({title:'Error', description:'Failed to delete', variant:'destructive'}) }
   }
   return (
-    <main className="p-6 space-y-6">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">User Management</h1>
       <div className="border rounded p-4 space-y-3">
         <h2 className="font-semibold">Create</h2>
@@ -55,6 +55,6 @@ export default function Users(){
           ))}
         </ul>
       </div>
-    </main>
+    </div>
   )
 }

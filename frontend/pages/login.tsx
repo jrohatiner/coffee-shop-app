@@ -19,7 +19,7 @@ export default function Login(){
     }catch(e){ toast({ title:'Login failed', description:'Invalid credentials', variant:'destructive'}) }
   }
   return (
-    <main className="p-6 max-w-md mx-auto space-y-3">
+    <div className="p-6 max-w-md mx-auto space-y-3">
       <h1 className="text-2xl font-bold">Login</h1>
       <form onSubmit={submit} className="space-y-3">
         <Input
@@ -39,6 +39,6 @@ export default function Login(){
         />
         <Button type="submit">Sign in</Button>
       </form>
-    </main>
+    </div>
   )
 }
