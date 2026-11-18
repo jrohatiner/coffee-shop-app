@@ -9,7 +9,12 @@ if INSTANCE_SOCKET and DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("localhost", f"/cloudsql/{INSTANCE_SOCKET}")
 
 # Create the SQLAlchemy engine
-engine = create_engine(DATABASE_URL, connect_args={"sslmode": "disable"})
+connect_args = (
+    {"check_same_thread": False}
+    if DATABASE_URL and DATABASE_URL.startswith("sqlite")
+    else {"sslmode": "disable"}
+)
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -8,8 +8,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-from app import models, schemas
-from app.database import get_db
+from app import database, models, schemas
 
 SECRET_KEY = os.getenv("JWT_SECRET", "dev_secret_key")
 ALGORITHM = "HS256"
@@ -38,7 +37,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -54,7 +52,12 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    user = db.query(models.User).filter(models.User.username == token_data.username).first()
-    if user is None:
-        raise credentials_exception
-    return user
+    db = database.SessionLocal()
+    try:
+        user = db.query(models.User).filter(models.User.username == token_data.username).first()
+        if user is None:
+            raise credentials_exception
+        db.expunge(user)
+        return user
+    finally:
+        db.close()
