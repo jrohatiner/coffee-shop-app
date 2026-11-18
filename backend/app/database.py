@@ -14,11 +14,11 @@ INSTANCE_SOCKET = os.getenv("INSTANCE_UNIX_SOCKET")
 if INSTANCE_SOCKET and DATABASE_URL and DATABASE_URL.startswith("postgresql"):
     DATABASE_URL = DATABASE_URL.replace("localhost", f"/cloudsql/{INSTANCE_SOCKET}")
 
-connect_args = (
-    {"check_same_thread": False}
-    if DATABASE_URL.startswith("sqlite")
-    else {"sslmode": "disable"}
-)
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+else:
+    connect_args = {"sslmode": "disable"}
 
 # Create the SQLAlchemy engine
 engine = create_engine(DATABASE_URL, connect_args=connect_args)

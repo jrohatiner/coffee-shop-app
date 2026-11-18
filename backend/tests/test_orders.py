@@ -16,6 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
 _BOOTSTRAP_DB_FD, _BOOTSTRAP_DB_PATH = tempfile.mkstemp(suffix=".db")
 os.close(_BOOTSTRAP_DB_FD)
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_BOOTSTRAP_DB_PATH}")
+os.environ.setdefault("JWT_SECRET", "super-secret-test-key-for-order-tests")
 
 from app import auth, models  # noqa: E402
 from app.database import Base, get_db  # noqa: E402
@@ -55,10 +56,16 @@ def client(db_session):
     def override_get_db():
         yield db_session
 
+    previous_override = app.dependency_overrides.get(get_db)
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.pop(get_db, None)
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        if previous_override is not None:
+            app.dependency_overrides[get_db] = previous_override
+        else:
+            app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture()
