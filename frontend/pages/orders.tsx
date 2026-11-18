@@ -1,6 +1,6 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
@@ -8,9 +8,47 @@ import { Table } from '../components/ui/Table'
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
 
 type Product = { id:number; name:string; price:number; stock:number }
 type Order = { id:number; status:string; created_at:string; items:any[] }
+
+function ProductOrderRow({
+  product,
+  qty,
+  onQtyChange,
+}: {
+  product: Product
+  qty: number
+  onQtyChange: (qty: number) => void
+}) {
+  const baseId = useId()
+  const headingId = `${baseId}-heading`
+  const qtyLabelId = `${baseId}-qty-label`
+  const qtyInputId = `${baseId}-qty`
+
+  return (
+    <div className="flex items-center justify-between border rounded p-2">
+      <div className="flex flex-col">
+        <span id={headingId} className="font-medium">{product.name}</span>
+        <span className="text-sm text-gray-600">${product.price.toFixed(2)} · stock {product.stock}</span>
+      </div>
+      <Input
+        id={qtyInputId}
+        label="Qty"
+        labelId={qtyLabelId}
+        wrapperClassName="flex items-center gap-2"
+        labelClassName="inline text-sm font-normal"
+        aria-labelledby={`${headingId} ${qtyLabelId}`}
+        type="number"
+        min={0}
+        value={qty}
+        onChange={e => onQtyChange(parseInt((e.target as HTMLInputElement).value || '0', 10))}
+        className="w-20"
+      />
+    </div>
+  )
+}
 
 export default function Orders(){
   const user = useAuth()
@@ -76,28 +114,28 @@ export default function Orders(){
             <div className="font-medium">Pick Products</div>
             <div className="space-y-2 max-h-80 overflow-auto pr-2">
               {products.map(p=>(
-                <div key={p.id} className="flex items-center justify-between border rounded p-2">
-                  <div className="flex flex-col">
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-sm text-gray-600">${p.price.toFixed(2)} · stock {p.stock}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">Qty</span>
-                    <Input type="number" min={0} value={cart[p.id] ?? 0} onChange={e=>setQty(p.id, parseInt((e.target as HTMLInputElement).value || '0'))} className="w-20"/>
-                  </div>
-                </div>
+                <ProductOrderRow
+                  key={p.id}
+                  product={p}
+                  qty={cart[p.id] ?? 0}
+                  onQtyChange={qty => setQty(p.id, qty)}
+                />
               ))}
             </div>
           </div>
 
           <div className="space-y-3">
-            <div className="font-medium">Order Status</div>
-            <select className="border rounded px-3 py-2" value={status} onChange={e=>setStatus(e.target.value as any)}>
+            <Select
+              label="Order Status"
+              labelClassName="text-base font-medium text-gray-900"
+              value={status}
+              onChange={e=>setStatus(e.target.value as any)}
+            >
               <option value="pending">pending</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
               <option value="cancelled">cancelled</option>
-            </select>
+            </Select>
 
             <div className="border rounded p-3">
               <div className="font-medium mb-2">Cart</div>
