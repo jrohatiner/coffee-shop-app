@@ -75,7 +75,7 @@ export default function Orders(){
   }
 
   return (
-    <main className="p-6 space-y-8">
+    <div className="p-6 space-y-8">
       <h1 className="text-2xl font-bold mb-4">Orders</h1>
 
       {/* Create New Order */}
@@ -149,6 +149,6 @@ export default function Orders(){
       </section>
 
       {selected && <OrderDetailModal order={selected} onClose={()=>setSelected(null)} />}
-    </main>
+    </div>
   )
 }

@@ -18,7 +18,7 @@ export default function Dashboard(){
   useEffect(()=>{ if(user) api.get('/dashboard/summary').then(r=>setSummary(r.data)) },[user])
   if(!user) return null
   return (
-    <main className="p-6 space-y-6">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">Dashboard</h1>
       <div className="p-4 border rounded">
         <h2 className="font-semibold">Total Sales</h2>
@@ -32,6 +32,6 @@ export default function Dashboard(){
           ))}
         </ul>
       </div>
-    </main>
+    </div>
   )
 }
