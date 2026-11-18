@@ -18,7 +18,7 @@ export default function Inventory(){
   useEffect(()=>{ if(user) load() },[user])
   useSocket(s=>{
     s.on('stock_update', ()=>{ toast({title:'Inventory Changed'}); load() })
-  })
+  }, Boolean(user))
 
   if(!user) return null
 

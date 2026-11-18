@@ -36,7 +36,7 @@ export default function Orders(){
     s.on('new_order', ()=>{ toast({title:'New Order'}); fetchOrders() })
     s.on('order_cancelled', ()=>{ toast({title:'Order cancelled'}); fetchOrders() })
     s.on('stock_update', ()=>{ loadProducts() })
-  })
+  }, Boolean(user))
 
   if(!user) return null
 
