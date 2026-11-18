@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -11,6 +12,9 @@ from sqlalchemy.pool import StaticPool
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+
+os.environ.setdefault("JWT_SECRET", "super-secret-test-key-for-auth-tests")
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
 TEST_ENGINE = create_engine(
     "sqlite://",
@@ -44,11 +48,17 @@ def client(db_session):
         finally:
             pass
 
+    previous_override = app.dependency_overrides.get(get_db)
     app.dependency_overrides[get_db] = override_get_db
-    with patch("app.routers.orders.sio.emit", new_callable=AsyncMock):
-        with TestClient(app) as test_client:
-            yield test_client
-    app.dependency_overrides.pop(get_db, None)
+    try:
+        with patch("app.routers.orders.sio.emit", new_callable=AsyncMock):
+            with TestClient(app) as test_client:
+                yield test_client
+    finally:
+        if previous_override is not None:
+            app.dependency_overrides[get_db] = previous_override
+        else:
+            app.dependency_overrides.pop(get_db, None)
 
 
 def _create_user(db_session, username: str, is_manager: bool = False) -> models.User:

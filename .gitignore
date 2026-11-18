@@ -19,6 +19,7 @@ build/
 # Environment variables
 .env
 .env.*
+!.env.example
 
 # Frontend / Node
 node_modules/

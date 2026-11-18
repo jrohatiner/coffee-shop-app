@@ -22,7 +22,7 @@ export default function Users(){
     catch{ toast({title:'Error', description:'Failed to delete', variant:'destructive'}) }
   }
   return (
-    <main className="p-6 space-y-6">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">User Management</h1>
       <div className="border rounded p-4 space-y-2">
         <h2 className="font-semibold">Create</h2>
@@ -35,16 +35,16 @@ export default function Users(){
         <Button onClick={create}>Create User</Button>
       </div>
       <div className="border rounded p-4 space-y-2">
-        <h2 className="font-semibold">Existing</h2>
-        <ul className="space-y-2">
+        <h2 id="existing-users-heading" className="font-semibold">Existing</h2>
+        <ul aria-labelledby="existing-users-heading" className="space-y-2">
           {users.map(u=>(
             <li key={u.id} className="flex justify-between items-center">
               <span>{u.username} {u.is_manager ? '(Manager)' : ''}</span>
-              <Button onClick={()=>del(u.id)}>Delete</Button>
+              <Button contextLabel={`user ${u.username}`} onClick={()=>del(u.id)}>Delete</Button>
             </li>
           ))}
         </ul>
       </div>
-    </main>
+    </div>
   )
 }
