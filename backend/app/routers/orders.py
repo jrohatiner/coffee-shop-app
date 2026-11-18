@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -119,6 +119,11 @@ def list_orders(
     q = db.query(models.Order)
     if status:
         q = q.filter(models.Order.status == status)
-    if date_filter:
-        q = q.filter(models.Order.created_at.cast(date) == date_filter)  # type: ignore
+    if date_filter is not None:
+        start_dt = datetime.combine(date_filter, time.min)
+        next_day_dt = start_dt + timedelta(days=1)
+        q = q.filter(
+            models.Order.created_at >= start_dt,
+            models.Order.created_at < next_day_dt,
+        )
     return q.all()

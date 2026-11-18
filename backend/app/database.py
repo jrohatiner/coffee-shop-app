@@ -2,14 +2,20 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./dev.db"
 INSTANCE_SOCKET = os.getenv("INSTANCE_UNIX_SOCKET")
 
-if INSTANCE_SOCKET and DATABASE_URL:
+if INSTANCE_SOCKET and not DATABASE_URL.startswith("sqlite"):
     DATABASE_URL = DATABASE_URL.replace("localhost", f"/cloudsql/{INSTANCE_SOCKET}")
 
+connect_args = (
+    {"check_same_thread": False}
+    if DATABASE_URL.startswith("sqlite")
+    else {"sslmode": "disable"}
+)
+
 # Create the SQLAlchemy engine
-engine = create_engine(DATABASE_URL, connect_args={"sslmode": "disable"})
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
