@@ -11,7 +11,7 @@ export default function Reports(){
   useEffect(()=>{ if(user) api.get(`/reports/${tab}`).then(r=>setReports(r.data)) },[user,tab])
   if(!user) return null
   return (
-    <main className="p-6">
+    <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Sales Reports</h1>
       <Tabs value={tab} onValueChange={(v)=>setTab(v as any)}>
         <TabsList>
@@ -29,6 +29,6 @@ export default function Reports(){
           </ul>
         </TabsContent>
       </Tabs>
-    </main>
+    </div>
   )
 }
