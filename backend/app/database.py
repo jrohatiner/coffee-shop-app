@@ -2,6 +2,12 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./dev.db"
 INSTANCE_SOCKET = os.getenv("INSTANCE_UNIX_SOCKET")
 
