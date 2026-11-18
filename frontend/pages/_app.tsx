@@ -1,6 +1,7 @@
 'use client'
 import '../styles/globals.css'
 import type { AppProps } from 'next/app'
+import Head from 'next/head'
 import { Toaster } from '../components/ui/toaster'
 import Navbar from '../components/Navbar'
 import { useRouter } from 'next/router'
@@ -11,6 +12,9 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
+      <Head>
+        <title>Coffee Shop</title>
+      </Head>
       {!hideNav && <Navbar />}
       <main className={hideNav ? '' : 'p-6'}>
         <Component {...pageProps} />
