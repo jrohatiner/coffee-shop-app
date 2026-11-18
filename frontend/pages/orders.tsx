@@ -1,7 +1,8 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import api from '../lib/api'
+import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
 import { Table } from '../components/ui/Table'
@@ -19,6 +20,15 @@ export default function Orders(){
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<Record<number, number>>({}) // productId -> qty
   const [status, setStatus] = useState<'pending'|'in_progress'|'completed'|'cancelled'>('pending')
+
+  const productById = useMemo(
+    () => new Map<number, Product>(products.map(p => [p.id, p])),
+    [products]
+  )
+  const orderRows = useMemo(
+    () => orders.map(order => ({ order, formattedCreatedAt: formatOrderDate(order.created_at) })),
+    [orders]
+  )
 
   const fetchOrders=()=>api.get('/orders').then(r=>setOrders(r.data)).catch(()=>toast({title:'Error', description:'Failed to load orders', variant:'destructive'}))
   const loadProducts=()=>api.get('/inventory').then(r=>setProducts(r.data)).catch(()=>{})
@@ -103,7 +113,7 @@ export default function Orders(){
               <div className="font-medium mb-2">Cart</div>
               <ul className="space-y-1">
                 {Object.entries(cart).map(([pid, qty])=>{
-                  const p = products.find(pp=>pp.id === Number(pid))
+                  const p = productById.get(Number(pid))
                   if(!p) return null
                   return <li key={pid} className="flex justify-between"><span>{p.name}</span><span>× {qty}</span></li>
                 })}
@@ -121,13 +131,13 @@ export default function Orders(){
         <Table>
           <thead><tr><th>ID</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
           <tbody>
-            {orders.map(o=>(
+            {orderRows.map(({ order: o, formattedCreatedAt })=>(
               <tr key={o.id}>
                 <td>{o.id}</td>
                 <td>{o.status}</td>
-                <td>{new Date(o.created_at).toLocaleString()}</td>
+                <td>{formattedCreatedAt}</td>
                 <td className="flex gap-2">
-                  <Button onClick={()=>setSelected(o as any)}>View</Button>
+                  <Button onClick={()=>setSelected(o)}>View</Button>
                   {(o.status !== 'cancelled' && o.status !== 'completed') && (
                     <Button onClick={()=>cancelOrder(o.id)}>Cancel</Button>
                   )}

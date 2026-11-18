@@ -1,11 +1,20 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import api from '../lib/api'
+import { formatOrderDate } from '../lib/dateFormat'
 
 export default function Dashboard(){
   const user = useAuth()
   const [summary,setSummary]=useState<any>({ totalSales:0, recentOrders:[] })
+  const recentOrders = useMemo(
+    () =>
+      (summary?.recentOrders ?? []).map((o: any) => ({
+        order: o,
+        formattedCreatedAt: formatOrderDate(o.created_at),
+      })),
+    [summary?.recentOrders]
+  )
   useEffect(()=>{ if(user) api.get('/dashboard/summary').then(r=>setSummary(r.data)) },[user])
   if(!user) return null
   return (
@@ -18,8 +27,8 @@ export default function Dashboard(){
       <div className="p-4 border rounded">
         <h2 className="font-semibold">Recent Orders</h2>
         <ul className="list-disc ml-5">
-          {summary.recentOrders?.map((o:any)=>(
-            <li key={o.id}>#{o.id} — {o.status} — {new Date(o.created_at).toLocaleString()}</li>
+          {recentOrders.map(({ order: o, formattedCreatedAt }: any)=>(
+            <li key={o.id}>#{o.id} — {o.status} — {formattedCreatedAt}</li>
           ))}
         </ul>
       </div>
