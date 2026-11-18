@@ -2,10 +2,11 @@ import os
 import tempfile
 from datetime import date, datetime, time, timedelta
 
-# Point app.database at an isolated temp SQLite database during test module import
+# Point app.database at an isolated temp SQLite database during standalone import
 _IMPORT_DB = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _IMPORT_DB.close()
-os.environ["DATABASE_URL"] = f"sqlite:///{_IMPORT_DB.name}"
+os.environ.setdefault("JWT_SECRET", "super-secret-test-key-for-auth-tests")
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_IMPORT_DB.name}")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -50,12 +51,14 @@ def db_env(tmp_path):
         finally:
             db.close()
 
+    previous_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
     try:
         yield engine, TestingSessionLocal, client
     finally:
         app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous_overrides)
         engine.dispose()
 
 
