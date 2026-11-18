@@ -55,7 +55,7 @@ export default function Inventory(){
   }
 
   return (
-    <main className="p-6 space-y-6">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">Inventory</h1>
 
       {/* Create New Product */}
@@ -86,6 +86,6 @@ export default function Inventory(){
           </div>
         ))}
       </section>
-    </main>
+    </div>
   )
 }

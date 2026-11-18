@@ -1,8 +1,9 @@
 from datetime import date
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app import models, schemas, auth
 from app.database import get_db
@@ -10,50 +11,106 @@ from app.websockets import sio
 
 router = APIRouter()
 
+
+def _serialize_order(order: models.Order) -> schemas.OrderOut:
+    if all(it.product is not None for it in order.items):
+        if hasattr(schemas.OrderOut, "model_validate"):
+            return schemas.OrderOut.model_validate(order, from_attributes=True)
+        return schemas.OrderOut.from_orm(order)
+
+    items_out = []
+    for it in order.items:
+        if it.product is not None:
+            item_out = (
+                schemas.OrderItemOut.model_validate(it, from_attributes=True)
+                if hasattr(schemas.OrderItemOut, "model_validate")
+                else schemas.OrderItemOut.from_orm(it)
+            )
+        else:
+            item_construct = getattr(
+                schemas.OrderItemOut, "model_construct", schemas.OrderItemOut.construct
+            )
+            item_out = item_construct(
+                id=it.id,
+                product_id=it.product_id,
+                quantity=it.quantity,
+                product=None,
+            )
+        items_out.append(item_out)
+
+    order_construct = getattr(
+        schemas.OrderOut, "model_construct", schemas.OrderOut.construct
+    )
+    return order_construct(
+        id=order.id,
+        user_id=order.user_id,
+        status=order.status,
+        created_at=order.created_at,
+        items=items_out,
+    )
+
+
 @router.post("/", response_model=schemas.OrderOut)
 async def create_order(
     order: schemas.OrderCreate,
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    # user_id comes from token
-    db_order = models.Order(user_id=current_user.id, status=order.status)
-    db.add(db_order)
-    db.commit()
-    db.refresh(db_order)
+    product_ids = sorted({item.product_id for item in order.items})
+    product_map: Dict[int, models.Product] = {}
+    if product_ids:
+        products = (
+            db.query(models.Product)
+            .filter(models.Product.id.in_(product_ids))
+            .order_by(models.Product.id)
+            .with_for_update()
+            .all()
+        )
+        product_map = {prod.id: prod for prod in products}
 
-    # Validate stock first
-    product_map = {}  # cache products by id
+    requested_quantities: Dict[int, int] = {}
     for item in order.items:
-        prod = product_map.get(item.product_id) or db.query(models.Product).filter(models.Product.id == item.product_id).first()
+        prod = product_map.get(item.product_id)
         if not prod:
             raise HTTPException(400, f"Product {item.product_id} does not exist")
-        product_map[item.product_id] = prod
         if item.quantity <= 0:
             raise HTTPException(400, f"Invalid quantity for product {prod.name}")
-        if prod.stock < item.quantity:
-            raise HTTPException(400, f"Insufficient stock for {prod.name}. Available: {prod.stock}, requested: {item.quantity}")
-
-    # Deduct stock and create items
-    for item in order.items:
-        prod = product_map[item.product_id]
-        prod.stock -= item.quantity
-        db.add(
-            models.OrderItem(
-                order_id=db_order.id,
-                product_id=item.product_id,
-                quantity=item.quantity,
-            )
+        requested_quantities[item.product_id] = (
+            requested_quantities.get(item.product_id, 0) + item.quantity
         )
 
+    for product_id, total_quantity in requested_quantities.items():
+        prod = product_map[product_id]
+        if prod.stock < total_quantity:
+            raise HTTPException(
+                400,
+                f"Insufficient stock for {prod.name}. Available: {prod.stock}, requested: {total_quantity}",
+            )
+
+    for product_id, total_quantity in requested_quantities.items():
+        product_map[product_id].stock -= total_quantity
+
+    db_order = models.Order(user_id=current_user.id, status=order.status)
+    db_order.items = [
+        models.OrderItem(
+            product_id=item.product_id,
+            quantity=item.quantity,
+            product=product_map[item.product_id],
+        )
+        for item in order.items
+    ]
+    db.add(db_order)
+    db.flush()
+
+    order_out = _serialize_order(db_order)
     db.commit()
-    db.refresh(db_order)
 
     # Notify listeners
     await sio.emit("new_order")
     await sio.emit("stock_update")
 
-    return db_order
+    return order_out
+
 
 @router.post("/{order_id}/cancel", response_model=schemas.OrderOut)
 async def cancel_order(
@@ -61,27 +118,55 @@ async def cancel_order(
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    order = (
+        db.query(models.Order)
+        .options(selectinload(models.Order.items))
+        .filter(models.Order.id == order_id)
+        .first()
+    )
     if not order:
         raise HTTPException(404, "Order not found")
 
-    if order.status == "cancelled":
-        return order
+    product_ids = sorted({it.product_id for it in order.items})
+    product_map: Dict[int, models.Product] = {}
+    if product_ids:
+        product_query = (
+            db.query(models.Product)
+            .filter(models.Product.id.in_(product_ids))
+            .order_by(models.Product.id)
+        )
+        if order.status != "cancelled":
+            product_query = product_query.with_for_update()
+        products = product_query.all()
+        product_map = {prod.id: prod for prod in products}
 
-    # Restock items when cancelling
     for it in order.items:
-        prod = db.query(models.Product).filter(models.Product.id == it.product_id).first()
+        set_committed_value(it, "product", product_map.get(it.product_id))
+
+    if order.status == "cancelled":
+        return _serialize_order(order)
+
+    restock_quantities: Dict[int, int] = {}
+    for it in order.items:
+        restock_quantities[it.product_id] = (
+            restock_quantities.get(it.product_id, 0) + it.quantity
+        )
+
+    for product_id, total_quantity in restock_quantities.items():
+        prod = product_map.get(product_id)
         if prod:
-            prod.stock += it.quantity
+            prod.stock += total_quantity
 
     order.status = "cancelled"
+    db.flush()
+
+    order_out = _serialize_order(order)
     db.commit()
-    db.refresh(order)
 
     await sio.emit("stock_update")
-    await sio.emit("order_cancelled", {"order_id": order.id})
+    await sio.emit("order_cancelled", {"order_id": order_out.id})
 
-    return order
+    return order_out
 
 @router.get("/{order_id}", response_model=schemas.OrderOut)
 def get_order(
