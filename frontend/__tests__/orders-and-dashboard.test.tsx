@@ -178,14 +178,16 @@ describe('Orders page', () => {
       const rows = renderer.root.findAllByType('tr')
       // Header row + 2 order rows
       assert.equal(rows.length, 3)
+      const row1Header = getText(rows[1].findByType('th'))
       const row1Cells = rows[1].findAllByType('td').map(getText)
+      const row2Header = getText(rows[2].findByType('th'))
       const row2Cells = rows[2].findAllByType('td').map(getText)
-      assert.equal(row1Cells[0], '101')
-      assert.equal(row1Cells[1], 'pending')
-      assert.equal(row1Cells[2], expectedValidDate)
-      assert.equal(row2Cells[0], '102')
-      assert.equal(row2Cells[1], 'completed')
-      assert.equal(row2Cells[2], 'Invalid Date')
+      assert.equal(row1Header, '101')
+      assert.equal(row1Cells[0], 'pending')
+      assert.equal(row1Cells[1], expectedValidDate)
+      assert.equal(row2Header, '102')
+      assert.equal(row2Cells[0], 'completed')
+      assert.equal(row2Cells[1], 'Invalid Date')
 
       // Interactive state updates: add both products to cart, change status, open/close modal
       const inputs = renderer.root.findAllByType('input')
@@ -222,7 +224,7 @@ describe('Orders page', () => {
 
       // Modal payload verification: clicking View passes the exact unmodified Order object
       const buttons = renderer.root.findAllByType('button')
-      const viewFirstOrderBtn = buttons.find((b) => getText(b) === 'View')
+      const viewFirstOrderBtn = buttons.find((b) => getText(b) === 'View order #101')
       assert.ok(viewFirstOrderBtn, 'Expected View button on order row')
 
       await act(async () => {

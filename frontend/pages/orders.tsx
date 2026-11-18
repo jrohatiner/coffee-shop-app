@@ -5,7 +5,15 @@ import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
-import { Table } from '../components/ui/Table'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableRowHeader,
+  TableCell,
+} from '../components/ui/Table'
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
@@ -38,7 +46,7 @@ export default function Orders(){
     s.on('new_order', ()=>{ toast({title:'New Order'}); fetchOrders() })
     s.on('order_cancelled', ()=>{ toast({title:'Order cancelled'}); fetchOrders() })
     s.on('stock_update', ()=>{ loadProducts() })
-  })
+  }, Boolean(user))
 
   if(!user) return null
 
@@ -128,23 +136,30 @@ export default function Orders(){
 
       {/* Orders table */}
       <section>
-        <Table>
-          <thead><tr><th>ID</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-          <tbody>
+        <Table caption="Orders" hideCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead>ID</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {orderRows.map(({ order: o, formattedCreatedAt })=>(
-              <tr key={o.id}>
-                <td>{o.id}</td>
-                <td>{o.status}</td>
-                <td>{formattedCreatedAt}</td>
-                <td className="flex gap-2">
-                  <Button onClick={()=>setSelected(o)}>View</Button>
+              <TableRow key={o.id}>
+                <TableRowHeader>{o.id}</TableRowHeader>
+                <TableCell>{o.status}</TableCell>
+                <TableCell>{formattedCreatedAt}</TableCell>
+                <TableCell className="flex gap-2">
+                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelected(o)}>View</Button>
                   {(o.status !== 'cancelled' && o.status !== 'completed') && (
-                    <Button onClick={()=>cancelOrder(o.id)}>Cancel</Button>
+                    <Button contextLabel={`order #${o.id}`} onClick={()=>cancelOrder(o.id)}>Cancel</Button>
                   )}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
+          </TableBody>
         </Table>
       </section>
 
