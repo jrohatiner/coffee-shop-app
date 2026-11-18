@@ -1,14 +1,25 @@
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy.orm import Session, joinedload
 
 from app import models, schemas, auth
 from app.database import get_db
 from app.websockets import sio
 
 router = APIRouter()
+
+
+def _serialize_order_summary(order: models.Order) -> dict:
+    summary = schemas.OrderSummaryOut(
+        id=order.id,
+        status=order.status,
+        created_at=order.created_at,
+    )
+    return jsonable_encoder(summary)
+
 
 @router.post("/", response_model=schemas.OrderOut)
 async def create_order(
@@ -49,8 +60,8 @@ async def create_order(
     db.commit()
     db.refresh(db_order)
 
-    # Notify listeners
-    await sio.emit("new_order")
+    # Notify listeners with lightweight summary data
+    await sio.emit("new_order", _serialize_order_summary(db_order))
     await sio.emit("stock_update")
 
     return db_order
@@ -79,7 +90,10 @@ async def cancel_order(
     db.refresh(order)
 
     await sio.emit("stock_update")
-    await sio.emit("order_cancelled", {"order_id": order.id})
+    await sio.emit(
+        "order_cancelled",
+        {**_serialize_order_summary(order), "order_id": order.id},
+    )
 
     return order
 
@@ -89,7 +103,12 @@ def get_order(
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    order = (
+        db.query(models.Order)
+        .options(joinedload(models.Order.items).joinedload(models.OrderItem.product))
+        .filter(models.Order.id == order_id)
+        .first()
+    )
     if not order:
         raise HTTPException(404, "Order not found")
     return order
@@ -109,16 +128,18 @@ def update_order(
     db.refresh(order)
     return order
 
-@router.get("/", response_model=List[schemas.OrderOut])
+@router.get("/", response_model=List[schemas.OrderSummaryOut])
 def list_orders(
     status: Optional[str] = None,
     date_filter: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    q = db.query(models.Order)
+    q = db.query(models.Order.id, models.Order.status, models.Order.created_at)
     if status:
         q = q.filter(models.Order.status == status)
     if date_filter:
-        q = q.filter(models.Order.created_at.cast(date) == date_filter)  # type: ignore
+        start_dt = datetime.combine(date_filter, time.min)
+        end_dt = start_dt + timedelta(days=1)
+        q = q.filter(models.Order.created_at >= start_dt, models.Order.created_at < end_dt)
     return q.all()

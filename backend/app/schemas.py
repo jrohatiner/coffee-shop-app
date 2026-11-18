@@ -47,9 +47,18 @@ class OrderItemOut(OrderItemBase):
     product: ProductOut
     class Config:
         orm_mode = True
+        from_attributes = True
 
 class OrderBase(BaseModel):
     status: Optional[str] = "pending"
+
+class OrderSummaryOut(BaseModel):
+    id: int
+    status: Optional[str] = "pending"
+    created_at: datetime
+    class Config:
+        orm_mode = True
+        from_attributes = True
 
 class OrderOut(OrderBase):
     id: int
@@ -58,6 +67,7 @@ class OrderOut(OrderBase):
     items: List[OrderItemOut]
     class Config:
         orm_mode = True
+        from_attributes = True
 
 # ---------- Reports ----------
 class SalesReportOut(BaseModel):

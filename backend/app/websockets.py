@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from socketio import AsyncServer
 from socketio.asgi import ASGIApp
 
-sio = AsyncServer(async_mode='asgi', cors_allowed_origins='*')
-socket_app = ASGIApp(sio)
+sio = AsyncServer(async_mode='asgi', cors_allowed_origins=[])
+socket_app = ASGIApp(sio, socketio_path='')
 
 def init_websockets(app: FastAPI):
     app.mount('/ws', socket_app)

@@ -8,14 +8,14 @@ import { Table } from '../components/ui/Table'
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
+import { OrderSummary, reconcileCancelledOrder, reconcileCreatedOrder } from '../lib/orderState'
 
 type Product = { id:number; name:string; price:number; stock:number }
-type Order = { id:number; status:string; created_at:string; items:any[] }
 
 export default function Orders(){
   const user = useAuth()
-  const [orders,setOrders]=useState<Order[]>([])
-  const [selected,setSelected]=useState<Order|null>(null)
+  const [orders,setOrders]=useState<OrderSummary[]>([])
+  const [selectedId,setSelectedId]=useState<number|null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<Record<number, number>>({}) // productId -> qty
   const [status, setStatus] = useState<'pending'|'in_progress'|'completed'|'cancelled'>('pending')
@@ -23,14 +23,22 @@ export default function Orders(){
   const fetchOrders=()=>api.get('/orders').then(r=>setOrders(r.data)).catch(()=>toast({title:'Error', description:'Failed to load orders', variant:'destructive'}))
   const loadProducts=()=>api.get('/inventory').then(r=>setProducts(r.data)).catch(()=>{})
 
-  useEffect(()=>{ if(user){ fetchOrders(); loadProducts() } },[user])
+  useEffect(()=>{ if(user){ fetchOrders(); loadProducts() } },[user?.sub])
   useSocket(s=>{
-    s.on('new_order', ()=>{ toast({title:'New Order'}); fetchOrders() })
-    s.on('order_cancelled', ()=>{ toast({title:'Order cancelled'}); fetchOrders() })
+    s.on('new_order', (payload: unknown)=>{
+      toast({title:'New Order'})
+      setOrders(prev => reconcileCreatedOrder(prev, payload))
+    })
+    s.on('order_cancelled', (payload: unknown)=>{
+      toast({title:'Order cancelled'})
+      setOrders(prev => reconcileCancelledOrder(prev, payload))
+    })
     s.on('stock_update', ()=>{ loadProducts() })
   })
 
   if(!user) return null
+
+  const selected = selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null
 
   const setQty = (pid:number, qty:number) => {
     setCart(prev => {
@@ -44,11 +52,11 @@ export default function Orders(){
     const items = Object.entries(cart).map(([product_id, quantity])=>({ product_id: Number(product_id), quantity: Number(quantity) }))
     if(items.length === 0){ toast({title:'Add at least one item', variant:'destructive'}); return }
     try{
-      await api.post('/orders', { status, items })
+      const res = await api.post('/orders', { status, items })
+      setOrders(prev => reconcileCreatedOrder(prev, res.data))
       toast({title:'Order created'})
       setCart({})
       setStatus('pending')
-      fetchOrders()
     }catch(e:any){
       toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create order', variant:'destructive'})
     }
@@ -56,9 +64,9 @@ export default function Orders(){
 
   const cancelOrder = async (id:number) => {
     try{
-      await api.post(`/orders/${id}/cancel`)
+      const res = await api.post(`/orders/${id}/cancel`)
+      setOrders(prev => reconcileCancelledOrder(prev, res.data))
       toast({title:'Order cancelled'})
-      fetchOrders()
     }catch(e:any){
       toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to cancel order', variant:'destructive'})
     }
@@ -127,7 +135,7 @@ export default function Orders(){
                 <td>{o.status}</td>
                 <td>{new Date(o.created_at).toLocaleString()}</td>
                 <td className="flex gap-2">
-                  <Button onClick={()=>setSelected(o as any)}>View</Button>
+                  <Button onClick={()=>setSelectedId(o.id)}>View</Button>
                   {(o.status !== 'cancelled' && o.status !== 'completed') && (
                     <Button onClick={()=>cancelOrder(o.id)}>Cancel</Button>
                   )}
@@ -138,7 +146,7 @@ export default function Orders(){
         </Table>
       </section>
 
-      {selected && <OrderDetailModal order={selected} onClose={()=>setSelected(null)} />}
+      {selected && <OrderDetailModal order={selected} onClose={()=>setSelectedId(null)} />}
     </main>
   )
 }
