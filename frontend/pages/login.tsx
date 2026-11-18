@@ -18,11 +18,11 @@ export default function Login(){
     }catch(e){ toast({ title:'Login failed', description:'Invalid credentials', variant:'destructive'}) }
   }
   return (
-    <main className="p-6 max-w-md mx-auto space-y-3">
+    <div className="p-6 max-w-md mx-auto space-y-3">
       <h1 className="text-2xl font-bold">Login</h1>
       <Input placeholder="Username" value={username} onChange={e=>setU((e.target as HTMLInputElement).value)} />
       <Input placeholder="Password" type="password" value={password} onChange={e=>setP((e.target as HTMLInputElement).value)} />
       <Button onClick={submit}>Sign in</Button>
-    </main>
+    </div>
   )
 }
