@@ -8,6 +8,7 @@ import { Table } from '../components/ui/Table'
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
 
 type Product = { id:number; name:string; price:number; stock:number }
 type Order = { id:number; status:string; created_at:string; items:any[] }
@@ -92,12 +93,12 @@ export default function Orders(){
 
           <div className="space-y-3">
             <div className="font-medium">Order Status</div>
-            <select className="border rounded px-3 py-2" value={status} onChange={e=>setStatus(e.target.value as any)}>
+            <Select value={status} onChange={e=>setStatus(e.target.value as any)}>
               <option value="pending">pending</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
               <option value="cancelled">cancelled</option>
-            </select>
+            </Select>
 
             <div className="border rounded p-3">
               <div className="font-medium mb-2">Cart</div>
