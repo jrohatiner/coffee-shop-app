@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 from passlib.context import CryptContext
 
+from app import database as database_module
 from app.database import Base, get_db
 from app.main import app
 from app import models
@@ -26,6 +27,16 @@ def override_get_db():
         yield db
     finally:
         db.close()
+
+@pytest.fixture(autouse=True)
+def restore_global_db_bind():
+    prev_engine = database_module.engine
+    prev_bind = database_module.SessionLocal.kw.get("bind")
+    try:
+        yield
+    finally:
+        database_module.engine = prev_engine
+        database_module.SessionLocal.configure(bind=prev_bind)
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():

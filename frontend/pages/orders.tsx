@@ -4,7 +4,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
-import { Table } from '../components/ui/Table'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableRowHeader,
+  TableCell,
+} from '../components/ui/Table'
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
@@ -137,7 +145,7 @@ export default function Orders(){
     })
   }, [])
 
-  useSocket(handleSocketReady)
+  useSocket(handleSocketReady, Boolean(username))
 
   if(!user) return null
 
@@ -353,28 +361,35 @@ export default function Orders(){
           )}
         </div>
 
-        <Table>
-          <thead><tr><th>ID</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-          <tbody>
+        <Table caption="Orders" hideCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead>ID</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {orders.map(o=>(
-              <tr key={o.id}>
-                <td>{o.id}</td>
-                <td>{o.status}</td>
-                <td>{new Date(o.created_at).toLocaleString()}</td>
-                <td className="flex gap-2">
-                  <Button onClick={()=>setSelected(o as any)}>View</Button>
+              <TableRow key={o.id}>
+                <TableRowHeader>{o.id}</TableRowHeader>
+                <TableCell>{o.status}</TableCell>
+                <TableCell>{new Date(o.created_at).toLocaleString()}</TableCell>
+                <TableCell className="flex gap-2">
+                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelected(o as any)}>View</Button>
                   {(o.status !== 'cancelled' && o.status !== 'completed') && (
-                    <Button onClick={()=>cancelOrder(o.id)}>Cancel</Button>
+                    <Button contextLabel={`order #${o.id}`} onClick={()=>cancelOrder(o.id)}>Cancel</Button>
                   )}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
             {orders.length === 0 && (
-              <tr>
-                <td colSpan={4} className="p-4 text-center text-gray-500">No orders found.</td>
-              </tr>
+              <TableRow>
+                <TableCell colSpan={4} className="p-4 text-center text-gray-500">No orders found.</TableCell>
+              </TableRow>
             )}
-          </tbody>
+          </TableBody>
         </Table>
 
         <div className="flex items-center justify-between pt-2">
