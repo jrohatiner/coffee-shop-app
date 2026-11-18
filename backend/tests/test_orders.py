@@ -7,7 +7,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-os.environ.setdefault("DATABASE_URL", "postgresql+psycopg2://test:test@localhost/test")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-orders-suite")
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,16 +16,12 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.database as db_module
-
 test_engine = create_engine(
     "sqlite://",
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-db_module.engine = test_engine
-db_module.SessionLocal = TestingSessionLocal
 
 from app import auth, models
 from app.database import get_db
@@ -40,15 +37,21 @@ def override_get_db():
         db.close()
 
 
-app.dependency_overrides[get_db] = override_get_db
-
-
 @pytest.fixture()
 def setup_db():
+    had_prev = get_db in app.dependency_overrides
+    prev_override = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = override_get_db
     models.Base.metadata.drop_all(bind=test_engine)
     models.Base.metadata.create_all(bind=test_engine)
-    yield
-    models.Base.metadata.drop_all(bind=test_engine)
+    try:
+        yield
+    finally:
+        models.Base.metadata.drop_all(bind=test_engine)
+        if had_prev:
+            app.dependency_overrides[get_db] = prev_override
+        else:
+            app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture()
