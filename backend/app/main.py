@@ -13,6 +13,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
+    expose_headers=["X-Has-More"],
 )
 
 app.include_router(auth_router.router, prefix="/auth", tags=["Auth"])
