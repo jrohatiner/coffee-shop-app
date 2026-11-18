@@ -92,6 +92,8 @@ def get_order(
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(404, "Order not found")
+    if order.user_id != current_user.id and not current_user.is_manager:
+        raise HTTPException(status_code=403, detail="Not authorized to access this order")
     return order
 
 @router.put("/{order_id}", response_model=schemas.OrderOut)
