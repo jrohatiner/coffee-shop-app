@@ -20,9 +20,13 @@ export default function Inventory(){
   useEffect(()=>{ if(user) load() },[user])
   useSocket(s=>{
     s.on('stock_update', ()=>{ toast({title:'Inventory Changed'}); load() })
-  })
+  }, Boolean(user))
 
   if(!user) return null
+
+  const updateProduct = (id: number, patch: Partial<Product>) => {
+    setProducts(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)))
+  }
 
   const save = async (p: Product) => {
     const missingName = !p.name.trim()
@@ -116,34 +120,54 @@ export default function Inventory(){
       {/* Existing Products */}
       <section className="space-y-3">
         <h2 className="font-semibold text-lg">Products</h2>
-        {products.map(p=>(
-          <div key={p.id} className="border rounded p-4 space-y-2 max-w-lg">
-            <div className="grid gap-2">
-              <Input
-                label="Product Name"
-                defaultValue={p.name}
-                error={itemErrors[p.id]}
-                onChange={e=>{
-                  const val = (e.target as HTMLInputElement).value
-                  p.name = val
-                  if (val.trim() && itemErrors[p.id]) {
-                    setItemErrors(prev => {
-                      const next = { ...prev }
-                      delete next[p.id]
-                      return next
-                    })
-                  }
-                }}
-              />
-              <Input label="Price" type="number" defaultValue={p.price} onChange={e=>p.price=parseFloat((e.target as HTMLInputElement).value)} />
-              <Input label="Stock" type="number" defaultValue={p.stock} onChange={e=>p.stock=parseInt((e.target as HTMLInputElement).value)} />
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={()=>save(p)}>Save</Button>
-              <Button onClick={()=>del(p.id)}>Delete</Button>
-            </div>
-          </div>
-        ))}
+        {products.map(p=>{
+          const productLabel = p.name.trim() || `Product #${p.id}`
+          return (
+            <fieldset key={p.id} className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
+              <legend className="px-1 font-medium">{productLabel}</legend>
+              <div className="grid gap-2">
+                <Input
+                  label="Product Name"
+                  value={p.name}
+                  error={itemErrors[p.id]}
+                  onChange={e=>{
+                    const val = (e.target as HTMLInputElement).value
+                    updateProduct(p.id, { name: val })
+                    if (val.trim() && itemErrors[p.id]) {
+                      setItemErrors(prev => {
+                        const next = { ...prev }
+                        delete next[p.id]
+                        return next
+                      })
+                    }
+                  }}
+                />
+                <Input
+                  label="Price"
+                  type="number"
+                  value={p.price}
+                  onChange={e=>{
+                    const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
+                    updateProduct(p.id, { price: Number.isNaN(nextPrice) ? 0 : nextPrice })
+                  }}
+                />
+                <Input
+                  label="Stock"
+                  type="number"
+                  value={p.stock}
+                  onChange={e=>{
+                    const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
+                    updateProduct(p.id, { stock: Number.isNaN(nextStock) ? 0 : nextStock })
+                  }}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button contextLabel={productLabel} onClick={()=>save(p)}>Save</Button>
+                <Button contextLabel={productLabel} onClick={()=>del(p.id)}>Delete</Button>
+              </div>
+            </fieldset>
+          )
+        })}
       </section>
     </div>
   )
