@@ -1,7 +1,8 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import api from '../lib/api'
+import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
 import {
@@ -39,6 +40,15 @@ export default function Orders(){
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [dateFilter, setDateFilter] = useState<string>('')
   const [hasMore, setHasMore] = useState<boolean>(false)
+
+  const productById = useMemo(
+    () => new Map<number, Product>(products.map(p => [p.id, p])),
+    [products]
+  )
+  const orderRows = useMemo(
+    () => orders.map(order => ({ order, formattedCreatedAt: formatOrderDate(order.created_at) })),
+    [orders]
+  )
 
   const requestSeqRef = useRef(0)
   const pendingLocalCreatesRef = useRef<ReturnType<typeof setTimeout>[]>([])
@@ -279,7 +289,7 @@ export default function Orders(){
               <div className="font-medium mb-2">Cart</div>
               <ul className="space-y-1">
                 {Object.entries(cart).map(([pid, qty])=>{
-                  const p = products.find(pp=>pp.id === Number(pid))
+                  const p = productById.get(Number(pid))
                   if(!p) return null
                   return <li key={pid} className="flex justify-between"><span>{p.name}</span><span>× {qty}</span></li>
                 })}
@@ -371,13 +381,13 @@ export default function Orders(){
             </TableRow>
           </TableHeader>
           <TableBody>
-            {orders.map(o=>(
+            {orderRows.map(({ order: o, formattedCreatedAt })=>(
               <TableRow key={o.id}>
                 <TableRowHeader>{o.id}</TableRowHeader>
                 <TableCell>{o.status}</TableCell>
-                <TableCell>{new Date(o.created_at).toLocaleString()}</TableCell>
+                <TableCell>{formattedCreatedAt}</TableCell>
                 <TableCell className="flex gap-2">
-                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelected(o as any)}>View</Button>
+                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelected(o)}>View</Button>
                   {(o.status !== 'cancelled' && o.status !== 'completed') && (
                     <Button contextLabel={`order #${o.id}`} onClick={()=>cancelOrder(o.id)}>Cancel</Button>
                   )}
