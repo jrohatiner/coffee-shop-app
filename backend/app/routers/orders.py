@@ -146,6 +146,12 @@ async def cancel_order(
     if not order:
         raise HTTPException(404, "Order not found")
 
+    if not (order.user_id == current_user.id or current_user.is_manager):
+        raise HTTPException(403, "Not authorized to cancel this order")
+
+    if order.status in ("completed", "shipped"):
+        raise HTTPException(400, "Cannot cancel order in current status")
+
     product_ids = sorted({it.product_id for it in order.items})
     product_map: Dict[int, models.Product] = {}
     if product_ids:
