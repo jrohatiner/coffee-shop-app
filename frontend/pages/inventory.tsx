@@ -6,6 +6,7 @@ import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
+import FormErrorBanner from '../components/ui/FormErrorBanner'
 import { useSocket } from '../hooks/useSocket'
 
 export type Product = { id: number; name: string; price: number; stock: number }
@@ -226,6 +227,8 @@ export default function Inventory(){
   const user = useAuth()
   const [products,setProducts]=useState<Product[]>([])
   const [newItem, setNewItem] = useState<{name:string;price:number;stock:number}>({name:'',price:0,stock:0})
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [nameInvalid, setNameInvalid] = useState(false)
   const [nameError, setNameError] = useState('')
   const [itemErrors, setItemErrors] = useState<Record<number, string>>({})
 
@@ -285,6 +288,11 @@ export default function Inventory(){
     [load]
   )
   const save = async (p: Product) => {
+    setItemErrors((prev) => {
+      const next = { ...prev }
+      delete next[p.id]
+      return next
+    })
     const missingName = !p.name.trim()
     try{
       if (missingName) {
@@ -300,6 +308,7 @@ export default function Inventory(){
       toast({title:'Saved', description:p.name})
       load()
     } catch{
+      setItemErrors((prev) => ({ ...prev, [p.id]: 'Failed to save product changes.' }))
       if (!missingName) {
         setItemErrors(prev => ({ ...prev, [p.id]: 'Failed to save product changes.' }))
       }
@@ -308,6 +317,10 @@ export default function Inventory(){
   }
 
   const create = async () => {
+    setCreateError(null)
+    if(!newItem.name.trim()){
+      setNameInvalid(true)
+      setCreateError('Name required: enter a product name before adding a product.')
     if(!newItem.name.trim()){
       setNameError('Product name is required.')
       toast({title:'Name required', variant:'destructive'})
@@ -315,6 +328,8 @@ export default function Inventory(){
     }
     try{
       await api.post('/inventory', newItem)
+      setNameInvalid(false)
+      setCreateError(null)
       setNameError('')
     if(!newItem.name.trim()){ toast({title:'Name required', variant:'destructive'}); return }
     const parsedPrice = newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
@@ -330,6 +345,28 @@ export default function Inventory(){
       load()
     } catch(e:any){
       const detail = e?.response?.data?.detail ?? 'Failed to create'
+      setNameInvalid(true)
+      setCreateError(detail)
+      toast({title:'Error', description: detail, variant:'destructive'})
+    }
+  }
+
+  const del = async (id:number) => {
+    setItemErrors((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+    try{
+      await api.delete(`/inventory/${id}`)
+      toast({title:'Product deleted'})
+      load()
+    } catch(e:any){
+      const detail = e?.response?.data?.detail ?? 'Failed to delete'
+      setItemErrors((prev) => ({ ...prev, [id]: detail }))
+      toast({title:'Error', description: detail, variant:'destructive'})
+    }
+  }
       setNameError(typeof detail === 'string' ? detail : 'Failed to create')
       toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create', variant:'destructive'})
     }
@@ -346,6 +383,44 @@ export default function Inventory(){
       <section className="border rounded p-4 space-y-3">
         <h2 className="font-semibold text-lg">Create New Product</h2>
         <div className="grid gap-3 max-w-lg">
+          <div className="space-y-1">
+            <label htmlFor="new-product-name" className="block text-sm font-medium text-gray-800">
+              Name
+            </label>
+            <Input
+              id="new-product-name"
+              placeholder="Name"
+              value={newItem.name}
+              aria-invalid={nameInvalid ? true : undefined}
+              aria-describedby={createError ? 'inventory-create-error' : undefined}
+              onChange={e=>setNewItem({...newItem, name:(e.target as HTMLInputElement).value})}
+            />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="new-product-price" className="block text-sm font-medium text-gray-800">
+              Price
+            </label>
+            <Input
+              id="new-product-price"
+              type="number"
+              placeholder="Price"
+              value={newItem.price}
+              onChange={e=>setNewItem({...newItem, price: parseFloat((e.target as HTMLInputElement).value || '0')})}
+            />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="new-product-stock" className="block text-sm font-medium text-gray-800">
+              Stock
+            </label>
+            <Input
+              id="new-product-stock"
+              type="number"
+              placeholder="Stock"
+              value={newItem.stock}
+              onChange={e=>setNewItem({...newItem, stock: parseInt((e.target as HTMLInputElement).value || '0')})}
+            />
+          </div>
+          <FormErrorBanner id="inventory-create-error" message={createError} />
           <Input
             label="Product Name"
             placeholder="Name"
@@ -398,6 +473,9 @@ export default function Inventory(){
               <legend className="px-1 font-medium">{productLabel}</legend>
               <div className="grid gap-2">
                 <Input
+                  aria-label={`${productLabel} name`}
+                  aria-invalid={itemErrors[p.id] ? true : undefined}
+                  aria-describedby={itemErrors[p.id] ? `inventory-item-error-${p.id}` : undefined}
                   label="Product Name"
                   value={p.name}
                   error={itemErrors[p.id]}
@@ -416,6 +494,9 @@ export default function Inventory(){
                 <Input
                   label="Price"
                   type="number"
+                  aria-label={`${productLabel} price`}
+                  aria-invalid={itemErrors[p.id] ? true : undefined}
+                  aria-describedby={itemErrors[p.id] ? `inventory-item-error-${p.id}` : undefined}
                   value={p.price}
                   onChange={e=>{
                     const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
@@ -425,6 +506,9 @@ export default function Inventory(){
                 <Input
                   label="Stock"
                   type="number"
+                  aria-label={`${productLabel} stock`}
+                  aria-invalid={itemErrors[p.id] ? true : undefined}
+                  aria-describedby={itemErrors[p.id] ? `inventory-item-error-${p.id}` : undefined}
                   value={p.stock}
                   onChange={e=>{
                     const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
@@ -432,6 +516,7 @@ export default function Inventory(){
                   }}
                 />
               </div>
+              <FormErrorBanner id={`inventory-item-error-${p.id}`} message={itemErrors[p.id]} />
               <div className="flex gap-2">
                 <Button contextLabel={productLabel} onClick={()=>save(p)}>Save</Button>
                 <Button contextLabel={productLabel} onClick={()=>del(p.id)}>Delete</Button>

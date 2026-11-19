@@ -6,6 +6,7 @@ import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
+import FormErrorBanner from '../components/ui/FormErrorBanner'
 import {
   Table,
   TableHeader,
@@ -427,6 +428,7 @@ export default function Orders(){
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<Record<number, number>>({}) // productId -> qty
   const [status, setStatus] = useState<'pending'|'in_progress'|'completed'|'cancelled'>('pending')
+  const [orderError, setOrderError] = useState<string | null>(null)
   const [orderError, setOrderError] = useState('')
 
   const [page, setPage] = useState<number>(1)
@@ -626,8 +628,10 @@ export default function Orders(){
   }
 
   const createOrder = async () => {
+    setOrderError(null)
     const items = Object.entries(cart).map(([product_id, quantity])=>({ product_id: Number(product_id), quantity: Number(quantity) }))
     if(items.length === 0){
+      setOrderError('Add at least one item: enter a quantity greater than 0 for at least one product before creating an order.')
       setOrderError('Add at least one item with a quantity greater than 0 before submitting an order.')
       toast({title:'Add at least one item', variant:'destructive'})
       return
@@ -643,6 +647,7 @@ export default function Orders(){
 
     try{
       await api.post('/orders', { status, items })
+      setOrderError(null)
       setOrderError('')
       const res = await api.post('/orders', { status, items })
       applyCreatedOrder(res.data)
@@ -690,6 +695,8 @@ export default function Orders(){
       const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
       if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
       const detail = e?.response?.data?.detail ?? 'Failed to create order'
+      setOrderError(detail)
+      toast({title:'Error', description: detail, variant:'destructive'})
       setOrderError(typeof detail === 'string' ? detail : 'Failed to create order')
       toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create order', variant:'destructive'})
     }
@@ -831,6 +838,16 @@ export default function Orders(){
                     <span className="text-sm text-gray-700">${p.price.toFixed(2)} · stock {p.stock}</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <label htmlFor={`order-qty-${p.id}`} className="text-sm">
+                      Qty<span className="sr-only"> for {p.name}</span>
+                    </label>
+                    <Input
+                      id={`order-qty-${p.id}`}
+                      type="number"
+                      min={0}
+                      value={cart[p.id] ?? 0}
+                      aria-invalid={orderError ? true : undefined}
+                      aria-describedby={orderError ? 'orders-form-error' : undefined}
                     <label htmlFor={`order-qty-${p.id}`} className="text-sm font-medium text-gray-800">
                       Qty
                     </label>
@@ -859,6 +876,9 @@ export default function Orders(){
 
           <div className="space-y-3">
             <label htmlFor="order-status" className="font-medium block">Order Status</label>
+            <select
+              id="order-status"
+              className="border border-gray-300 bg-white text-gray-900 rounded px-3 py-2"
             <select id="order-status" className="border rounded px-3 py-2 bg-white text-gray-900" value={status} onChange={e=>setStatus(e.target.value as any)}>
             <Select
               label="Order Status"
@@ -884,6 +904,7 @@ export default function Orders(){
               </ul>
             </div>
 
+            <FormErrorBanner id="orders-form-error" message={orderError} />
             {orderError && (
               <p
                 id="order-cart-error"
