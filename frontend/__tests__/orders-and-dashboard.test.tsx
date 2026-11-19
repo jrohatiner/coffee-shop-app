@@ -190,7 +190,7 @@ describe('Orders page', () => {
       assert.equal(row2Cells[1], 'Invalid Date')
 
       // Interactive state updates: add both products to cart, change status, open/close modal
-      const inputs = renderer.root.findAllByType('input')
+      const inputs = renderer.root.findAll((n) => n.type === 'input' && n.props.type === 'number')
       assert.equal(inputs.length, 2)
 
       await act(async () => {
@@ -198,7 +198,9 @@ describe('Orders page', () => {
         inputs[1].props.onChange({ target: { value: '1' } })
       })
 
-      const select = renderer.root.findByType('select')
+      const selects = renderer.root.findAllByType('select')
+      assert.equal(selects.length, 3)
+      const select = selects[0]
       await act(async () => {
         select.props.onChange({ target: { value: 'in_progress' } })
       })

@@ -422,7 +422,8 @@ describe('Staff pages state isolation and row memoization', () => {
 
       const pickerRows = findAllMemo(renderer.root, ProductPickerRow)
       const firstQtyInput = pickerRows[0].findByType('input')
-      const statusSelect = renderer.root.findByType('select')
+      const creatorInstance = findAllMemo(renderer.root, OrderCreator)[0]
+      const statusSelect = creatorInstance.findByType('select')
 
       await act(async () => {
         firstQtyInput.props.onChange({ target: { value: '2' } })
@@ -454,7 +455,9 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(findAllMemo(renderer.root, ProductPickerRow)[0].findByType('input').props.value).toBe(
         4
       )
-      expect(renderer.root.findByType('select').props.value).toBe('in_progress')
+      expect(findAllMemo(renderer.root, OrderCreator)[0].findByType('select').props.value).toBe(
+        'in_progress'
+      )
 
       mockApi.post.mockResolvedValueOnce({ data: { id: 104 } })
       await act(async () => {
@@ -469,7 +472,9 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(findAllMemo(renderer.root, ProductPickerRow)[0].findByType('input').props.value).toBe(
         0
       )
-      expect(renderer.root.findByType('select').props.value).toBe('pending')
+      expect(findAllMemo(renderer.root, OrderCreator)[0].findByType('select').props.value).toBe(
+        'pending'
+      )
 
       renderer.unmount()
     })
@@ -531,6 +536,90 @@ describe('Staff pages state isolation and row memoization', () => {
         await flushPromises()
       })
       expect(mockApi.post).toHaveBeenCalledWith('/orders/101/cancel')
+
+      renderer.unmount()
+    })
+
+    test('preserves pagination/filtering params and local socket echo deduplication without re-rendering OrderCreator', async () => {
+      mockApi.get.mockImplementation((url: string) => {
+        if (url === '/orders') {
+          return Promise.resolve({ data: sampleOrders, headers: { 'x-has-more': 'true' } })
+        }
+        if (url === '/inventory') return Promise.resolve({ data: sampleProducts })
+        return Promise.resolve({ data: [] })
+      })
+      mockApi.post.mockResolvedValue({ data: { id: 105 } })
+
+      let renderer!: TestRenderer.ReactTestRenderer
+      await act(async () => {
+        renderer = TestRenderer.create(<Orders />)
+        await flushPromises()
+      })
+
+      expect(mockApi.get).toHaveBeenCalledWith('/orders', {
+        params: { limit: 20, offset: 0 },
+      })
+
+      resetAllSpies()
+
+      const statusFilterSelect = renderer.root.findByProps({ id: 'orders-status-filter' })
+      const nextBtn = findButtonByText(renderer.root, 'Next')
+
+      await act(async () => {
+        nextBtn.props.onClick()
+        await flushPromises()
+      })
+      expect(mockApi.get).toHaveBeenLastCalledWith('/orders', {
+        params: { limit: 20, offset: 20 },
+      })
+
+      await act(async () => {
+        statusFilterSelect.props.onChange({ target: { value: 'pending' } })
+        await flushPromises()
+      })
+      expect(mockApi.get).toHaveBeenLastCalledWith('/orders', {
+        params: { limit: 20, offset: 0, status: 'pending' },
+      })
+
+      // Changing pagination and filters did not re-render OrderCreator's picker inputs
+      const pickerInputRenders = inputRenderSpy.mock.calls.filter(
+        ([props]) => props.type === 'number'
+      )
+      expect(pickerInputRenders).toHaveLength(0)
+
+      // Local order creation suppresses immediate socket new_order & stock_update echoes
+      const pickerRows = findAllMemo(renderer.root, ProductPickerRow)
+      await act(async () => {
+        pickerRows[0].findByType('input').props.onChange({ target: { value: '1' } })
+      })
+
+      mockToast.mockClear()
+      const createOrderBtn = findButtonByText(renderer.root, 'Create Order')
+      await act(async () => {
+        await createOrderBtn.props.onClick()
+        await flushPromises()
+      })
+      expect(mockToast).toHaveBeenCalledWith({ title: 'Order created' })
+
+      mockToast.mockClear()
+      mockApi.get.mockClear()
+      await act(async () => {
+        socketListeners['new_order']?.forEach(cb => cb())
+        socketListeners['stock_update']?.forEach(cb => cb())
+        await flushPromises()
+      })
+      // Echoes from our own local create were suppressed; subsequent remote event goes through
+      expect(mockToast).not.toHaveBeenCalledWith({ title: 'New Order' })
+      expect(mockApi.get).not.toHaveBeenCalled()
+
+      await act(async () => {
+        socketListeners['new_order']?.forEach(cb => cb())
+        await flushPromises()
+      })
+      expect(mockToast).toHaveBeenCalledWith({ title: 'New Order' })
+      expect(mockApi.get).toHaveBeenCalledWith('/orders', {
+        params: { limit: 20, offset: 0, status: 'pending' },
+      })
 
       renderer.unmount()
     })

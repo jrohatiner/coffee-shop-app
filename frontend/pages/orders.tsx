@@ -1,6 +1,6 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
@@ -17,10 +17,15 @@ import {
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
+import type { Socket } from 'socket.io-client'
 
 export type Product = { id: number; name: string; price: number; stock: number }
 export type Order = { id: number; status: string; created_at: string; items: any[] }
 type OrderStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled'
+
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
+const DEFAULT_PAGE_SIZE = 20
+const LOCAL_SOCKET_ECHO_TTL_MS = 1500
 
 export const ProductPickerRow = memo(function ProductPickerRow({
   product,
@@ -58,9 +63,14 @@ export const ProductPickerRow = memo(function ProductPickerRow({
 export const OrderCreator = memo(function OrderCreator({
   products,
   onOrderCreated,
+  onSubmitOrder,
 }: {
   products: Product[]
-  onOrderCreated: () => void
+  onOrderCreated: () => void | Promise<unknown>
+  onSubmitOrder?: (payload: {
+    status: OrderStatus
+    items: { product_id: number; quantity: number }[]
+  }) => Promise<void>
 }) {
   const [cart, setCart] = useState<Record<number, number>>({})
   const [status, setStatus] = useState<OrderStatus>('pending')
@@ -94,11 +104,15 @@ export const OrderCreator = memo(function OrderCreator({
       return
     }
     try {
-      await api.post('/orders', { status, items })
+      if (onSubmitOrder) {
+        await onSubmitOrder({ status, items })
+      } else {
+        await api.post('/orders', { status, items })
+      }
       toast({ title: 'Order created' })
       setCart({})
       setStatus('pending')
-      onOrderCreated()
+      await onOrderCreated()
     } catch (e: any) {
       toast({
         title: 'Error',
@@ -212,95 +226,374 @@ export const OrdersTable = memo(function OrdersTable({
   )
 
   return (
-    <section>
-      <Table caption="Orders" hideCaption>
-        <TableHeader>
+    <Table caption="Orders" hideCaption>
+      <TableHeader>
+        <TableRow>
+          <TableHead>ID</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Created</TableHead>
+          <TableHead>Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {orderRows.map(({ order: o, formattedCreatedAt }) => (
+          <OrderRow
+            key={o.id}
+            order={o}
+            formattedCreatedAt={formattedCreatedAt}
+            onSelect={onSelect}
+            onCancel={onCancel}
+          />
+        ))}
+        {orders.length === 0 && (
           <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Actions</TableHead>
+            <TableCell colSpan={4} className="p-4 text-center text-gray-500">
+              No orders found.
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {orderRows.map(({ order: o, formattedCreatedAt }) => (
-            <OrderRow
-              key={o.id}
-              order={o}
-              formattedCreatedAt={formattedCreatedAt}
-              onSelect={onSelect}
-              onCancel={onCancel}
-            />
+        )}
+      </TableBody>
+    </Table>
+  )
+})
+
+const OrdersFilters = memo(function OrdersFilters({
+  statusFilter,
+  dateFilter,
+  pageSize,
+  onStatusFilterChange,
+  onDateFilterChange,
+  onPageSizeChange,
+  onClearFilters,
+}: {
+  statusFilter: string
+  dateFilter: string
+  pageSize: number
+  onStatusFilterChange: (value: string) => void
+  onDateFilterChange: (value: string) => void
+  onPageSizeChange: (size: number) => void
+  onClearFilters: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      <div className="flex flex-col gap-1">
+        <label htmlFor="orders-status-filter" className="text-sm font-medium">
+          Status Filter
+        </label>
+        <select
+          id="orders-status-filter"
+          aria-label="Filter by status"
+          className="border rounded px-3 py-2"
+          value={statusFilter}
+          onChange={e => onStatusFilterChange(e.target.value)}
+        >
+          <option value="">All statuses</option>
+          <option value="pending">pending</option>
+          <option value="in_progress">in_progress</option>
+          <option value="completed">completed</option>
+          <option value="cancelled">cancelled</option>
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="orders-date-filter" className="text-sm font-medium">
+          Date Filter
+        </label>
+        <Input
+          id="orders-date-filter"
+          aria-label="Filter by date"
+          type="date"
+          className="w-44"
+          value={dateFilter}
+          onChange={e => onDateFilterChange((e.target as HTMLInputElement).value)}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="orders-page-size" className="text-sm font-medium">
+          Page Size
+        </label>
+        <select
+          id="orders-page-size"
+          aria-label="Orders per page"
+          className="border rounded px-3 py-2"
+          value={pageSize}
+          onChange={e => onPageSizeChange(Number(e.target.value))}
+        >
+          {PAGE_SIZE_OPTIONS.map(size => (
+            <option key={size} value={size}>
+              {size} per page
+            </option>
           ))}
-        </TableBody>
-      </Table>
-    </section>
+        </select>
+      </div>
+
+      {(statusFilter || dateFilter) && <Button onClick={onClearFilters}>Clear Filters</Button>}
+    </div>
+  )
+})
+
+const OrdersPagination = memo(function OrdersPagination({
+  page,
+  ordersCount,
+  hasMore,
+  onPrevPage,
+  onNextPage,
+}: {
+  page: number
+  ordersCount: number
+  hasMore: boolean
+  onPrevPage: () => void
+  onNextPage: () => void
+}) {
+  return (
+    <div className="flex items-center justify-between pt-2">
+      <div className="text-sm text-gray-600">
+        Page {page} · Showing {ordersCount} {ordersCount === 1 ? 'order' : 'orders'}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          disabled={page <= 1}
+          className="disabled:opacity-50 disabled:pointer-events-none"
+          onClick={onPrevPage}
+        >
+          Previous
+        </Button>
+        <Button
+          disabled={!hasMore}
+          className="disabled:opacity-50 disabled:pointer-events-none"
+          onClick={onNextPage}
+        >
+          Next
+        </Button>
+      </div>
+    </div>
   )
 })
 
 export default function Orders() {
   const user = useAuth()
+  const username = user?.sub ?? null
   const [orders, setOrders] = useState<Order[]>([])
   const [selected, setSelected] = useState<Order | null>(null)
   const [products, setProducts] = useState<Product[]>([])
 
-  const fetchOrders = useCallback(() => {
-    api
-      .get('/orders')
-      .then(r => setOrders(r.data))
-      .catch(() =>
-        toast({ title: 'Error', description: 'Failed to load orders', variant: 'destructive' })
-      )
-  }, [])
+  const [page, setPage] = useState<number>(1)
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
+  const [statusFilter, setStatusFilter] = useState<string>('')
+  const [dateFilter, setDateFilter] = useState<string>('')
+  const [hasMore, setHasMore] = useState<boolean>(false)
 
-  const loadProducts = useCallback(() => {
-    api
-      .get('/inventory')
-      .then(r => setProducts(r.data))
-      .catch(() => {})
-  }, [])
+  const requestSeqRef = useRef(0)
+  const pendingLocalCreatesRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const pendingLocalCancelsRef = useRef<Map<number, ReturnType<typeof setTimeout> | null>>(new Map())
+  const pendingLocalStockRef = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  const fetchOrders = useCallback(() => {
+    const seq = ++requestSeqRef.current
+    const params: Record<string, string | number> = {
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    }
+    if (statusFilter) params.status = statusFilter
+    if (dateFilter) params.date_filter = dateFilter
+
+    return api
+      .get('/orders', { params })
+      .then(r => {
+        if (seq !== requestSeqRef.current) return
+        const data: Order[] = r.data
+        setOrders(data)
+        const headerHasMore = r.headers?.['x-has-more']
+        const more =
+          headerHasMore !== undefined
+            ? String(headerHasMore).toLowerCase() === 'true'
+            : data.length === pageSize
+        setHasMore(more)
+      })
+      .catch(() => {
+        if (seq !== requestSeqRef.current) return
+        toast({ title: 'Error', description: 'Failed to load orders', variant: 'destructive' })
+      })
+  }, [page, pageSize, statusFilter, dateFilter])
+
+  const loadProducts = useCallback(
+    () =>
+      api
+        .get('/inventory')
+        .then(r => setProducts(r.data))
+        .catch(() => {}),
+    []
+  )
+
+  const fetchOrdersRef = useRef(fetchOrders)
+  fetchOrdersRef.current = fetchOrders
+  const loadProductsRef = useRef(loadProducts)
+  loadProductsRef.current = loadProducts
 
   useEffect(() => {
-    if (user) {
+    if (username) {
       fetchOrders()
+    }
+  }, [username, fetchOrders])
+
+  useEffect(() => {
+    if (username) {
       loadProducts()
     }
-  }, [user, fetchOrders, loadProducts])
+  }, [username, loadProducts])
 
-  const handleSocket = useCallback(
-    (s: any) => {
-      s.on('new_order', () => {
-        toast({ title: 'New Order' })
-        fetchOrders()
+  useEffect(() => {
+    return () => {
+      pendingLocalCreatesRef.current.forEach(t => clearTimeout(t))
+      pendingLocalCreatesRef.current = []
+      pendingLocalCancelsRef.current.forEach(t => {
+        if (t) clearTimeout(t)
       })
-      s.on('order_cancelled', () => {
-        toast({ title: 'Order cancelled' })
-        fetchOrders()
-      })
-      s.on('stock_update', () => {
-        loadProducts()
-      })
-    },
-    [fetchOrders, loadProducts]
-  )
-  useSocket(handleSocket, Boolean(user))
+      pendingLocalCancelsRef.current.clear()
+      pendingLocalStockRef.current.forEach(t => clearTimeout(t))
+      pendingLocalStockRef.current = []
+    }
+  }, [])
 
-  const cancelOrder = useCallback(
-    async (id: number) => {
+  const handleSocketReady = useCallback((s: Socket) => {
+    s.on('new_order', () => {
+      if (pendingLocalCreatesRef.current.length > 0) {
+        const timer = pendingLocalCreatesRef.current.shift()
+        if (timer) clearTimeout(timer)
+        return
+      }
+      toast({ title: 'New Order' })
+      fetchOrdersRef.current()
+    })
+    s.on('order_cancelled', (payload?: { order_id?: number }) => {
+      const cancelledId = payload?.order_id
+      if (cancelledId != null && pendingLocalCancelsRef.current.has(cancelledId)) {
+        const timer = pendingLocalCancelsRef.current.get(cancelledId)
+        if (timer) clearTimeout(timer)
+        pendingLocalCancelsRef.current.delete(cancelledId)
+        return
+      }
+      if (cancelledId == null && pendingLocalCancelsRef.current.size > 0) {
+        const firstEntry = pendingLocalCancelsRef.current.entries().next().value
+        if (firstEntry) {
+          const [id, timer] = firstEntry
+          if (timer) clearTimeout(timer)
+          pendingLocalCancelsRef.current.delete(id)
+          return
+        }
+      }
+      toast({ title: 'Order cancelled' })
+      fetchOrdersRef.current()
+    })
+    s.on('stock_update', () => {
+      if (pendingLocalStockRef.current.length > 0) {
+        const timer = pendingLocalStockRef.current.shift()
+        if (timer) clearTimeout(timer)
+        return
+      }
+      loadProductsRef.current()
+    })
+  }, [])
+
+  useSocket(handleSocketReady, Boolean(username))
+
+  const submitOrder = useCallback(
+    async ({
+      status,
+      items,
+    }: {
+      status: OrderStatus
+      items: { product_id: number; quantity: number }[]
+    }) => {
+      const createEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
+      clearTimeout(createEchoToken)
+      pendingLocalCreatesRef.current.push(createEchoToken)
+
+      const stockEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
+      clearTimeout(stockEchoToken)
+      pendingLocalStockRef.current.push(stockEchoToken)
+
       try {
-        await api.post(`/orders/${id}/cancel`)
-        toast({ title: 'Order cancelled' })
-        fetchOrders()
-      } catch (e: any) {
-        toast({
-          title: 'Error',
-          description: e?.response?.data?.detail ?? 'Failed to cancel order',
-          variant: 'destructive',
-        })
+        await api.post('/orders', { status, items })
+
+        const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
+        if (createIdx !== -1) {
+          const expiry = setTimeout(() => {
+            const idx = pendingLocalCreatesRef.current.indexOf(expiry)
+            if (idx !== -1) pendingLocalCreatesRef.current.splice(idx, 1)
+          }, LOCAL_SOCKET_ECHO_TTL_MS)
+          ;(expiry as any)?.unref?.()
+          pendingLocalCreatesRef.current[createIdx] = expiry
+        }
+
+        const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
+        if (stockIdx !== -1) {
+          const expiry = setTimeout(() => {
+            const idx = pendingLocalStockRef.current.indexOf(expiry)
+            if (idx !== -1) pendingLocalStockRef.current.splice(idx, 1)
+          }, LOCAL_SOCKET_ECHO_TTL_MS)
+          ;(expiry as any)?.unref?.()
+          pendingLocalStockRef.current[stockIdx] = expiry
+        }
+      } catch (e) {
+        const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
+        if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
+        const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
+        if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
+        throw e
       }
     },
-    [fetchOrders]
+    []
   )
+
+  const handleOrderCreated = useCallback(
+    () => Promise.all([fetchOrdersRef.current(), loadProductsRef.current()]),
+    []
+  )
+
+  const cancelOrder = useCallback(async (id: number) => {
+    pendingLocalCancelsRef.current.set(id, null)
+    const stockEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
+    clearTimeout(stockEchoToken)
+    pendingLocalStockRef.current.push(stockEchoToken)
+
+    try {
+      await api.post(`/orders/${id}/cancel`)
+      toast({ title: 'Order cancelled' })
+
+      if (pendingLocalCancelsRef.current.has(id)) {
+        const expiry = setTimeout(() => {
+          pendingLocalCancelsRef.current.delete(id)
+        }, LOCAL_SOCKET_ECHO_TTL_MS)
+        ;(expiry as any)?.unref?.()
+        pendingLocalCancelsRef.current.set(id, expiry)
+      }
+
+      const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
+      if (stockIdx !== -1) {
+        const expiry = setTimeout(() => {
+          const idx = pendingLocalStockRef.current.indexOf(expiry)
+          if (idx !== -1) pendingLocalStockRef.current.splice(idx, 1)
+        }, LOCAL_SOCKET_ECHO_TTL_MS)
+        ;(expiry as any)?.unref?.()
+        pendingLocalStockRef.current[stockIdx] = expiry
+      }
+
+      await Promise.all([fetchOrdersRef.current(), loadProductsRef.current()])
+    } catch (e: any) {
+      const existing = pendingLocalCancelsRef.current.get(id)
+      if (existing) clearTimeout(existing)
+      pendingLocalCancelsRef.current.delete(id)
+      const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
+      if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
+      toast({
+        title: 'Error',
+        description: e?.response?.data?.detail ?? 'Failed to cancel order',
+        variant: 'destructive',
+      })
+    }
+  }, [])
 
   const handleSelectOrder = useCallback((order: Order) => {
     setSelected(order)
@@ -310,6 +603,35 @@ export default function Orders() {
     setSelected(null)
   }, [])
 
+  const handleStatusFilterChange = useCallback((value: string) => {
+    setStatusFilter(value)
+    setPage(1)
+  }, [])
+
+  const handleDateFilterChange = useCallback((value: string) => {
+    setDateFilter(value)
+    setPage(1)
+  }, [])
+
+  const handlePageSizeChange = useCallback((size: number) => {
+    setPageSize(size)
+    setPage(1)
+  }, [])
+
+  const handleClearFilters = useCallback(() => {
+    setStatusFilter('')
+    setDateFilter('')
+    setPage(1)
+  }, [])
+
+  const handlePrevPage = useCallback(() => {
+    setPage(p => Math.max(1, p - 1))
+  }, [])
+
+  const handleNextPage = useCallback(() => {
+    setPage(p => p + 1)
+  }, [])
+
   if (!user) return null
 
   return (
@@ -317,10 +639,34 @@ export default function Orders() {
       <h1 className="text-2xl font-bold mb-4">Orders</h1>
 
       {/* Create New Order */}
-      <OrderCreator products={products} onOrderCreated={fetchOrders} />
+      <OrderCreator
+        products={products}
+        onOrderCreated={handleOrderCreated}
+        onSubmitOrder={submitOrder}
+      />
 
-      {/* Orders table */}
-      <OrdersTable orders={orders} onSelect={handleSelectOrder} onCancel={cancelOrder} />
+      {/* Orders table & pagination */}
+      <section className="space-y-4">
+        <OrdersFilters
+          statusFilter={statusFilter}
+          dateFilter={dateFilter}
+          pageSize={pageSize}
+          onStatusFilterChange={handleStatusFilterChange}
+          onDateFilterChange={handleDateFilterChange}
+          onPageSizeChange={handlePageSizeChange}
+          onClearFilters={handleClearFilters}
+        />
+
+        <OrdersTable orders={orders} onSelect={handleSelectOrder} onCancel={cancelOrder} />
+
+        <OrdersPagination
+          page={page}
+          ordersCount={orders.length}
+          hasMore={hasMore}
+          onPrevPage={handlePrevPage}
+          onNextPage={handleNextPage}
+        />
+      </section>
 
       {selected && <OrderDetailModal order={selected} onClose={handleCloseModal} />}
     </div>

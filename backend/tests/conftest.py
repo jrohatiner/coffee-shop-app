@@ -1,5 +1,11 @@
 import os
+import sys
+from pathlib import Path
 import pytest
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 # Ensure a secure JWT secret and test SQLite database are set for test session
 os.environ["JWT_SECRET"] = "super-secret-test-key-for-auth-tests"
@@ -10,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 from passlib.context import CryptContext
 
+from app import database as database_module
 from app.database import Base, get_db
 from app.main import app
 from app import models
@@ -20,6 +27,7 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated=["auto"])
 
+
 def override_get_db():
     db = TestingSessionLocal()
     try:
@@ -27,7 +35,16 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
+@pytest.fixture(autouse=True)
+def restore_global_db_bind():
+    prev_engine = database_module.engine
+    prev_bind = database_module.SessionLocal.kw.get("bind")
+    try:
+        yield
+    finally:
+        database_module.engine = prev_engine
+        database_module.SessionLocal.configure(bind=prev_bind)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
@@ -50,13 +67,41 @@ def setup_test_db():
     db.close()
     yield
     Base.metadata.drop_all(bind=test_engine)
+    test_engine.dispose()
     if os.path.exists("./test.db"):
         try:
             os.remove("./test.db")
         except OSError:
             pass
 
+
+@pytest.fixture
+def db_session():
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.query(models.OrderItem).delete()
+        session.query(models.Order).delete()
+        session.query(models.Product).delete()
+        session.query(models.User).filter(
+            ~models.User.username.in_(["manager", "staff"])
+        ).delete(synchronize_session=False)
+        session.commit()
+        session.close()
+
+
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
-        yield c
+    had_prev = get_db in app.dependency_overrides
+    prev_override = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        if had_prev:
+            app.dependency_overrides[get_db] = prev_override
+        else:
+            app.dependency_overrides.pop(get_db, None)
