@@ -45,12 +45,12 @@ export default function Users(){
         <Button onClick={create}>Create User</Button>
       </div>
       <div className="border rounded p-4 space-y-2">
-        <h2 className="font-semibold">Existing</h2>
-        <ul className="space-y-2">
+        <h2 id="existing-users-heading" className="font-semibold">Existing</h2>
+        <ul aria-labelledby="existing-users-heading" className="space-y-2">
           {users.map(u=>(
             <li key={u.id} className="flex justify-between items-center">
               <span>{u.username} {u.is_manager ? '(Manager)' : ''}</span>
-              <Button onClick={()=>del(u.id)}>Delete</Button>
+              <Button contextLabel={`user ${u.username}`} onClick={()=>del(u.id)}>Delete</Button>
             </li>
           ))}
         </ul>

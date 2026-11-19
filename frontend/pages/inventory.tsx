@@ -49,10 +49,12 @@ function ProductInventoryCard({
     })
   }
 
+  const productLabel = product.name.trim() || `Product #${product.id}`
+
   return (
-    <fieldset className="border rounded p-4 space-y-2 max-w-lg">
+    <fieldset className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
       <legend id={legendId} className="px-1 font-medium">
-        {product.name}
+        {productLabel}
       </legend>
       <div className="grid gap-2">
         <Input
@@ -81,8 +83,8 @@ function ProductInventoryCard({
         />
       </div>
       <div className="flex gap-2">
-        <Button type="button" onClick={handleSave}>Save</Button>
-        <Button type="button" onClick={() => onDelete(product.id)}>Delete</Button>
+        <Button type="button" contextLabel={productLabel} onClick={handleSave}>Save</Button>
+        <Button type="button" contextLabel={productLabel} onClick={() => onDelete(product.id)}>Delete</Button>
       </div>
     </fieldset>
   )
@@ -97,7 +99,7 @@ export default function Inventory(){
   useEffect(()=>{ if(user) load() },[user])
   useSocket(s=>{
     s.on('stock_update', ()=>{ toast({title:'Inventory Changed'}); load() })
-  })
+  }, Boolean(user))
 
   if(!user) return null
 
