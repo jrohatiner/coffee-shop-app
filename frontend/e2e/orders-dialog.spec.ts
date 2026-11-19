@@ -60,44 +60,51 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
     await route.abort()
   })
 
-  await page.route('http://localhost:8000/inventory', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(INITIAL_PRODUCTS),
-    })
-  })
-
-  await page.route('http://localhost:8000/orders', async (route) => {
-    if (route.request().method() === 'POST') {
-      const body = route.request().postDataJSON()
-      const created: MockOrder = {
-        id: 104,
-        status: body.status ?? 'pending',
-        created_at: '2026-11-18T10:00:00.000Z',
-        items: (body.items ?? []).map((item: { product_id: number; quantity: number }, idx: number) => ({
-          id: 10 + idx,
-          quantity: item.quantity,
-          product: {
-            name: INITIAL_PRODUCTS.find((p) => p.id === item.product_id)?.name ?? 'Item',
-          },
-        })),
-      }
-      currentOrders = [created, ...currentOrders]
+  await page.route(
+    (url) => url.origin === 'http://localhost:8000' && url.pathname === '/inventory',
+    async (route) => {
       await route.fulfill({
-        status: 201,
+        status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(created),
+        body: JSON.stringify(INITIAL_PRODUCTS),
       })
-      return
     }
+  )
 
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(currentOrders),
-    })
-  })
+  await page.route(
+    (url) => url.origin === 'http://localhost:8000' && url.pathname === '/orders',
+    async (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON()
+        const created: MockOrder = {
+          id: 104,
+          status: body.status ?? 'pending',
+          created_at: '2026-11-18T10:00:00.000Z',
+          items: (body.items ?? []).map((item: { product_id: number; quantity: number }, idx: number) => ({
+            id: 10 + idx,
+            quantity: item.quantity,
+            product: {
+              name: INITIAL_PRODUCTS.find((p) => p.id === item.product_id)?.name ?? 'Item',
+            },
+          })),
+        }
+        currentOrders = [created, ...currentOrders]
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(created),
+        })
+        return
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'x-has-more': 'false' },
+        body: JSON.stringify(currentOrders),
+      })
+    }
+  )
 
   await page.route('http://localhost:8000/orders/*/cancel', async (route) => {
     const match = route.request().url().match(/\/orders\/(\d+)\/cancel$/)
