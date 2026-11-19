@@ -1,6 +1,6 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
@@ -31,6 +31,43 @@ type Product = { id:number; name:string; price:number; stock:number }
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
 const LOCAL_SOCKET_ECHO_TTL_MS = 1500
+
+function ProductOrderRow({
+  product,
+  qty,
+  onQtyChange,
+}: {
+  product: Product
+  qty: number
+  onQtyChange: (qty: number) => void
+}) {
+  const baseId = useId()
+  const headingId = `${baseId}-heading`
+  const qtyLabelId = `${baseId}-qty-label`
+  const qtyInputId = `${baseId}-qty`
+
+  return (
+    <div className="flex items-center justify-between border rounded p-2">
+      <div className="flex flex-col">
+        <span id={headingId} className="font-medium">{product.name}</span>
+        <span className="text-sm text-gray-600">${product.price.toFixed(2)} · stock {product.stock}</span>
+      </div>
+      <Input
+        id={qtyInputId}
+        label="Qty"
+        labelId={qtyLabelId}
+        wrapperClassName="flex items-center gap-2"
+        labelClassName="inline text-sm font-normal"
+        aria-labelledby={`${headingId} ${qtyLabelId}`}
+        type="number"
+        min={0}
+        value={qty}
+        onChange={e => onQtyChange(parseInt((e.target as HTMLInputElement).value || '0', 10))}
+        className="w-20"
+      />
+    </div>
+  )
+}
 
 export default function Orders(){
   const user = useAuth()
@@ -307,23 +344,23 @@ export default function Orders(){
             <div className="font-medium">Pick Products</div>
             <div className="space-y-2 max-h-80 overflow-auto pr-2">
               {products.map(p=>(
-                <div key={p.id} className="flex items-center justify-between border rounded p-2">
-                  <div className="flex flex-col">
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-sm text-gray-600">${p.price.toFixed(2)} · stock {p.stock}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">Qty</span>
-                    <Input type="number" min={0} value={cart[p.id] ?? 0} onChange={e=>setQty(p.id, parseInt((e.target as HTMLInputElement).value || '0'))} className="w-20"/>
-                  </div>
-                </div>
+                <ProductOrderRow
+                  key={p.id}
+                  product={p}
+                  qty={cart[p.id] ?? 0}
+                  onQtyChange={qty => setQty(p.id, qty)}
+                />
               ))}
             </div>
           </div>
 
           <div className="space-y-3">
-            <div className="font-medium">Order Status</div>
-            <Select value={status} onChange={e=>setStatus(e.target.value as any)}>
+            <Select
+              label="Order Status"
+              labelClassName="text-base font-medium text-gray-900"
+              value={status}
+              onChange={e=>setStatus(e.target.value as any)}
+            >
               <option value="pending">pending</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
@@ -350,56 +387,50 @@ export default function Orders(){
       {/* Orders table & pagination */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-end gap-4">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="orders-status-filter" className="text-sm font-medium">Status Filter</label>
-            <Select
-              id="orders-status-filter"
-              aria-label="Filter by status"
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value)
-                setPage(1)
-              }}
-            >
-              <option value="">All statuses</option>
-              <option value="pending">pending</option>
-              <option value="in_progress">in_progress</option>
-              <option value="completed">completed</option>
-              <option value="cancelled">cancelled</option>
-            </Select>
-          </div>
+          <Select
+            id="orders-status-filter"
+            label="Status Filter"
+            wrapperClassName="flex flex-col gap-1"
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value)
+              setPage(1)
+            }}
+          >
+            <option value="">All statuses</option>
+            <option value="pending">pending</option>
+            <option value="in_progress">in_progress</option>
+            <option value="completed">completed</option>
+            <option value="cancelled">cancelled</option>
+          </Select>
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="orders-date-filter" className="text-sm font-medium">Date Filter</label>
-            <Input
-              id="orders-date-filter"
-              aria-label="Filter by date"
-              type="date"
-              className="w-44"
-              value={dateFilter}
-              onChange={(e) => {
-                setDateFilter((e.target as HTMLInputElement).value)
-                setPage(1)
-              }}
-            />
-          </div>
+          <Input
+            id="orders-date-filter"
+            label="Date Filter"
+            wrapperClassName="flex flex-col gap-1"
+            type="date"
+            className="w-44"
+            value={dateFilter}
+            onChange={(e) => {
+              setDateFilter((e.target as HTMLInputElement).value)
+              setPage(1)
+            }}
+          />
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="orders-page-size" className="text-sm font-medium">Page Size</label>
-            <Select
-              id="orders-page-size"
-              aria-label="Orders per page"
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value))
-                setPage(1)
-              }}
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size} per page</option>
-              ))}
-            </Select>
-          </div>
+          <Select
+            id="orders-page-size"
+            label="Page Size"
+            wrapperClassName="flex flex-col gap-1"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value))
+              setPage(1)
+            }}
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>{size} per page</option>
+            ))}
+          </Select>
 
           {(statusFilter || dateFilter) && (
             <Button
