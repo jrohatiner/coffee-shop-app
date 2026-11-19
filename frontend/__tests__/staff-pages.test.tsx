@@ -52,10 +52,11 @@ jest.mock('../hooks/useSocket', () => ({
 const inputRenderSpy = jest.fn()
 jest.mock('../components/ui/Input', () => {
   const actual = jest.requireActual('../components/ui/Input')
-  const WrappedInput = (props: any) => {
+  const WrappedInput = React.forwardRef((props: any, ref: any) => {
     inputRenderSpy(props)
-    return actual.Input(props)
-  }
+    return React.createElement(actual.Input, { ...props, ref })
+  })
+  WrappedInput.displayName = 'WrappedInput'
   return {
     __esModule: true,
     Input: WrappedInput,
@@ -66,10 +67,11 @@ jest.mock('../components/ui/Input', () => {
 const buttonRenderSpy = jest.fn()
 jest.mock('../components/ui/Button', () => {
   const actual = jest.requireActual('../components/ui/Button')
-  const WrappedButton = (props: any) => {
+  const WrappedButton = React.forwardRef((props: any, ref: any) => {
     buttonRenderSpy(props)
-    return actual.Button(props)
-  }
+    return React.createElement(actual.Button, { ...props, ref })
+  })
+  WrappedButton.displayName = 'WrappedButton'
   return {
     __esModule: true,
     Button: WrappedButton,
@@ -82,7 +84,7 @@ jest.mock('../components/ui/Table', () => {
   const actual = jest.requireActual('../components/ui/Table')
   const WrappedTable = (props: any) => {
     tableRenderSpy(props)
-    return actual.Table(props)
+    return React.createElement(actual.Table, props)
   }
   return {
     __esModule: true,
@@ -97,7 +99,7 @@ jest.mock('../components/OrderDetailModal', () => {
   const actual = jest.requireActual('../components/OrderDetailModal')
   const WrappedModal = (props: any) => {
     modalRenderSpy(props)
-    return actual.default(props)
+    return React.createElement(actual.default, props)
   }
   return {
     __esModule: true,

@@ -1,5 +1,6 @@
 'use client'
 import Dialog from './ui/Dialog'
+import Button from './ui/Button'
 export default function OrderDetailModal({ order, onClose }: any) {
   return (
     <Dialog open={!!order} onOpenChange={onClose}>
@@ -12,7 +13,7 @@ export default function OrderDetailModal({ order, onClose }: any) {
             <li key={it.id}>{it.product?.name ?? 'Item'} × {it.quantity}</li>
           ))}
         </ul>
-        <button className="mt-3 px-3 py-2 border rounded" onClick={onClose}>Close</button>
+        <Button className="mt-3" onClick={onClose}>Close</Button>
       </div>
     </Dialog>
   )
