@@ -92,6 +92,23 @@ def _preserve_database_bindings():
 
 
 @pytest.fixture
+def db_session():
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.query(models.OrderItem).delete()
+        session.query(models.Order).delete()
+        session.query(models.Product).delete()
+        session.query(models.User).filter(
+            ~models.User.username.in_(["manager", "staff"])
+        ).delete(synchronize_session=False)
+        session.commit()
+        session.close()
+
+
+@pytest.fixture
 def client():
     previous_override = app.dependency_overrides.get(get_db)
     app.dependency_overrides[get_db] = override_get_db
