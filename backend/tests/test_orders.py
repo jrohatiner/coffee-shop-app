@@ -83,17 +83,15 @@ def db_session(setup_db):
 
 @pytest.fixture()
 def client(setup_db):
-    with TestClient(app) as test_client:
-        yield test_client
+    with patch("app.routers.orders.sio.emit", new_callable=AsyncMock):
+        with TestClient(app) as test_client:
+            yield test_client
 
 
 @pytest.fixture()
 def auth_headers(setup_db):
     db = TestingSessionLocal()
     try:
-        with patch("app.routers.orders.sio.emit", new_callable=AsyncMock):
-            with TestClient(app) as test_client:
-                yield test_client
         user = models.User(
             username="staff",
             hashed_password=auth.get_password_hash("staff123"),
