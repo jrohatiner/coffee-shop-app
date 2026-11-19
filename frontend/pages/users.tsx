@@ -71,7 +71,9 @@ export const UserRow = memo(function UserRow({
       <span>
         {user.username} {user.is_manager ? '(Manager)' : ''}
       </span>
-      <Button onClick={() => onDelete(user.id)}>Delete</Button>
+      <Button contextLabel={`user ${user.username}`} onClick={() => onDelete(user.id)}>
+        Delete
+      </Button>
     </li>
   )
 })
@@ -107,17 +109,19 @@ export default function Users() {
   if (!user) return null
 
   return (
-    <main className="p-6 space-y-6">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">User Management</h1>
       <CreateUserForm onCreated={load} />
       <div className="border rounded p-4 space-y-2">
-        <h2 className="font-semibold">Existing</h2>
-        <ul className="space-y-2">
+        <h2 id="existing-users-heading" className="font-semibold">
+          Existing
+        </h2>
+        <ul aria-labelledby="existing-users-heading" className="space-y-2">
           {users.map(u => (
             <UserRow key={u.id} user={u} onDelete={del} />
           ))}
         </ul>
       </div>
-    </main>
+    </div>
   )
 }

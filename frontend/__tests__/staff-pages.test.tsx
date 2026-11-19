@@ -39,14 +39,14 @@ const mockSocket = {
   }),
   disconnect: jest.fn(),
 }
-const mockUseSocket = jest.fn((onReady?: (s: any) => void) => {
+const mockUseSocket = jest.fn((onReady?: (s: any) => void, enabled = true) => {
   React.useEffect(() => {
-    onReady && onReady(mockSocket)
-  }, [onReady])
-  return { current: mockSocket }
+    if (enabled && onReady) onReady(mockSocket)
+  }, [onReady, enabled])
+  return { current: enabled ? mockSocket : null }
 })
 jest.mock('../hooks/useSocket', () => ({
-  useSocket: (onReady?: (s: any) => void) => mockUseSocket(onReady),
+  useSocket: (onReady?: (s: any) => void, enabled?: boolean) => mockUseSocket(onReady, enabled),
 }))
 
 const inputRenderSpy = jest.fn()
@@ -86,6 +86,7 @@ jest.mock('../components/ui/Table', () => {
   }
   return {
     __esModule: true,
+    ...actual,
     Table: WrappedTable,
     default: WrappedTable,
   }
@@ -117,9 +118,16 @@ function resetAllSpies() {
   modalRenderSpy.mockClear()
 }
 
+function getVisibleButtonText(b: ReactTestInstance): string {
+  return b.children
+    .filter((child): child is string => typeof child === 'string')
+    .join('')
+    .trim()
+}
+
 function findButtonByText(root: ReactTestInstance, label: string): ReactTestInstance {
   const buttons = root.findAllByType('button')
-  const match = buttons.find(b => b.children.join('').trim() === label)
+  const match = buttons.find(b => getVisibleButtonText(b) === label)
   if (!match) throw new Error(`Button "${label}" not found`)
   return match
 }
@@ -481,7 +489,7 @@ describe('Staff pages state isolation and row memoization', () => {
       // Open modal for Order #101
       const viewButtons = renderer.root
         .findAllByType('button')
-        .filter(b => b.children.join('').trim() === 'View')
+        .filter(b => getVisibleButtonText(b) === 'View')
       await act(async () => {
         viewButtons[0].props.onClick()
       })
@@ -516,7 +524,7 @@ describe('Staff pages state isolation and row memoization', () => {
       // Cancel action on active order still works via memoized callback
       const cancelButtons = renderer.root
         .findAllByType('button')
-        .filter(b => b.children.join('').trim() === 'Cancel')
+        .filter(b => getVisibleButtonText(b) === 'Cancel')
       expect(cancelButtons).toHaveLength(2) // pending + in_progress (completed has no Cancel button)
       await act(async () => {
         await cancelButtons[0].props.onClick()

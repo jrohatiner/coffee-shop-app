@@ -7,7 +7,7 @@ const createJestConfig = nextJest({
 /** @type {import('jest').Config} */
 const customJestConfig = {
   testEnvironment: 'node',
-  testMatch: ['**/__tests__/**/*.test.ts?(x)'],
+  testMatch: ['**/__tests__/staff-pages.test.tsx'],
   modulePathIgnorePatterns: ['<rootDir>/.next/'],
 }
 

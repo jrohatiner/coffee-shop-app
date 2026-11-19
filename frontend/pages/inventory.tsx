@@ -54,23 +54,25 @@ export const CreateProductForm = memo(function CreateProductForm({
           type="number"
           placeholder="Price"
           value={newItem.price}
-          onChange={e =>
+          onChange={e => {
+            const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
             setNewItem(prev => ({
               ...prev,
-              price: parseFloat((e.target as HTMLInputElement).value || '0'),
+              price: Number.isNaN(nextPrice) ? 0 : nextPrice,
             }))
-          }
+          }}
         />
         <Input
           type="number"
           placeholder="Stock"
           value={newItem.stock}
-          onChange={e =>
+          onChange={e => {
+            const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
             setNewItem(prev => ({
               ...prev,
-              stock: parseInt((e.target as HTMLInputElement).value || '0'),
+              stock: Number.isNaN(nextStock) ? 0 : nextStock,
             }))
-          }
+          }}
         />
         <Button onClick={create}>Add Product</Button>
       </div>
@@ -101,8 +103,11 @@ export const ProductRow = memo(function ProductRow({
     })
   }, [product])
 
+  const productLabel = draft.name.trim() || `Product #${product.id}`
+
   return (
-    <div className="border rounded p-4 space-y-2 max-w-lg">
+    <fieldset className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
+      <legend className="px-1 font-medium">{productLabel}</legend>
       <div className="grid gap-2">
         <Input
           value={draft.name}
@@ -113,29 +118,35 @@ export const ProductRow = memo(function ProductRow({
         <Input
           type="number"
           value={draft.price}
-          onChange={e =>
+          onChange={e => {
+            const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
             setDraft(prev => ({
               ...prev,
-              price: parseFloat((e.target as HTMLInputElement).value || '0'),
+              price: Number.isNaN(nextPrice) ? 0 : nextPrice,
             }))
-          }
+          }}
         />
         <Input
           type="number"
           value={draft.stock}
-          onChange={e =>
+          onChange={e => {
+            const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
             setDraft(prev => ({
               ...prev,
-              stock: parseInt((e.target as HTMLInputElement).value || '0'),
+              stock: Number.isNaN(nextStock) ? 0 : nextStock,
             }))
-          }
+          }}
         />
       </div>
       <div className="flex gap-2">
-        <Button onClick={() => onSave({ ...product, ...draft })}>Save</Button>
-        <Button onClick={() => onDelete(product.id)}>Delete</Button>
+        <Button contextLabel={productLabel} onClick={() => onSave({ ...product, ...draft })}>
+          Save
+        </Button>
+        <Button contextLabel={productLabel} onClick={() => onDelete(product.id)}>
+          Delete
+        </Button>
       </div>
-    </div>
+    </fieldset>
   )
 })
 
@@ -160,7 +171,7 @@ export default function Inventory() {
     },
     [load]
   )
-  useSocket(handleSocket)
+  useSocket(handleSocket, Boolean(user))
 
   const save = useCallback(
     async (p: Product) => {
@@ -195,7 +206,7 @@ export default function Inventory() {
   if (!user) return null
 
   return (
-    <main className="p-6 space-y-6">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">Inventory</h1>
 
       {/* Create New Product */}
@@ -208,6 +219,6 @@ export default function Inventory() {
           <ProductRow key={p.id} product={p} onSave={save} onDelete={del} />
         ))}
       </section>
-    </main>
+    </div>
   )
 }

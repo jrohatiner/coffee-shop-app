@@ -4,7 +4,15 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
-import { Table } from '../components/ui/Table'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableRowHeader,
+  TableCell,
+} from '../components/ui/Table'
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
@@ -37,7 +45,7 @@ export const ProductPickerRow = memo(function ProductPickerRow({
           min={0}
           value={quantity}
           onChange={e =>
-            onChangeQty(product.id, parseInt((e.target as HTMLInputElement).value || '0'))
+            onChangeQty(product.id, parseInt((e.target as HTMLInputElement).value || '0', 10))
           }
           className="w-20"
         />
@@ -63,15 +71,16 @@ export const OrderCreator = memo(function OrderCreator({
   }, [products])
 
   const setQty = useCallback((pid: number, qty: number) => {
+    const normalizedQty = Number.isNaN(qty) ? 0 : qty
     setCart(prev => {
-      if (qty <= 0) {
+      if (normalizedQty <= 0) {
         if (!(pid in prev)) return prev
         const next = { ...prev }
         delete next[pid]
         return next
       }
-      if (prev[pid] === qty) return prev
-      return { ...prev, [pid]: qty }
+      if (prev[pid] === normalizedQty) return prev
+      return { ...prev, [pid]: normalizedQty }
     })
   }, [])
 
@@ -165,18 +174,23 @@ export const OrderRow = memo(function OrderRow({
   onSelect: (order: Order) => void
   onCancel: (id: number) => void
 }) {
+  const contextLabel = `order #${order.id}`
   return (
-    <tr>
-      <td>{order.id}</td>
-      <td>{order.status}</td>
-      <td>{new Date(order.created_at).toLocaleString()}</td>
-      <td className="flex gap-2">
-        <Button onClick={() => onSelect(order)}>View</Button>
+    <TableRow>
+      <TableRowHeader>{order.id}</TableRowHeader>
+      <TableCell>{order.status}</TableCell>
+      <TableCell>{new Date(order.created_at).toLocaleString()}</TableCell>
+      <TableCell className="flex gap-2">
+        <Button contextLabel={contextLabel} onClick={() => onSelect(order)}>
+          View
+        </Button>
         {order.status !== 'cancelled' && order.status !== 'completed' && (
-          <Button onClick={() => onCancel(order.id)}>Cancel</Button>
+          <Button contextLabel={contextLabel} onClick={() => onCancel(order.id)}>
+            Cancel
+          </Button>
         )}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   )
 })
 
@@ -191,20 +205,20 @@ export const OrdersTable = memo(function OrdersTable({
 }) {
   return (
     <section>
-      <Table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table caption="Orders" hideCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead>ID</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Created</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {orders.map(o => (
             <OrderRow key={o.id} order={o} onSelect={onSelect} onCancel={onCancel} />
           ))}
-        </tbody>
+        </TableBody>
       </Table>
     </section>
   )
@@ -255,7 +269,7 @@ export default function Orders() {
     },
     [fetchOrders, loadProducts]
   )
-  useSocket(handleSocket)
+  useSocket(handleSocket, Boolean(user))
 
   const cancelOrder = useCallback(
     async (id: number) => {
@@ -285,7 +299,7 @@ export default function Orders() {
   if (!user) return null
 
   return (
-    <main className="p-6 space-y-8">
+    <div className="p-6 space-y-8">
       <h1 className="text-2xl font-bold mb-4">Orders</h1>
 
       {/* Create New Order */}
@@ -295,6 +309,6 @@ export default function Orders() {
       <OrdersTable orders={orders} onSelect={handleSelectOrder} onCancel={cancelOrder} />
 
       {selected && <OrderDetailModal order={selected} onClose={handleCloseModal} />}
-    </main>
+    </div>
   )
 }
