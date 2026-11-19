@@ -253,12 +253,12 @@ def list_orders(
     q = _orders_with_details_query(db)
     if status:
         q = q.filter(models.Order.status == status)
-    if date_filter:
+    if date_filter is not None:
         start_dt = datetime.combine(date_filter, time.min)
-        end_dt = start_dt + timedelta(days=1)
+        next_day_dt = start_dt + timedelta(days=1)
         q = q.filter(
             models.Order.created_at >= start_dt,
-            models.Order.created_at < end_dt,
+            models.Order.created_at < next_day_dt,
         )
     rows = (
         q.order_by(models.Order.created_at.desc(), models.Order.id.desc())
