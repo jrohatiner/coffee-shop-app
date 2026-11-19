@@ -157,7 +157,10 @@ export const Toaster = () => {
   useEffect(() => {
     if (toasts.length === 0) return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (
+        event.key === 'Escape' &&
+        (typeof document === 'undefined' || !document.querySelector('dialog[open]'))
+      ) {
         dismiss()
       }
     }

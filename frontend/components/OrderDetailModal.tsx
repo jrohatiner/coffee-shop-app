@@ -1,36 +1,26 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import api from '../lib/api'
-import { OrderDetail, OrderSummary } from '../lib/orderState'
-import Dialog from './ui/Dialog'
-import Button from './ui/Button'
-
-type OrderDetailModalProps = {
-  order: OrderSummary | null
-import { useId } from 'react'
+import { OrderDetail, OrderItemDetail, OrderSummary } from '../lib/orderState'
 import Button from './ui/Button'
 import Dialog from './ui/Dialog'
 
-type OrderItem = {
-  id: number | string
-  quantity: number
-  product?: {
-    name?: string
-  }
-}
-
-type Order = {
-  id: number | string
-  status: string
-  items?: OrderItem[]
+type OrderWithOptionalItems = OrderSummary & {
+  items?: OrderItemDetail[]
 }
 
 type OrderDetailModalProps = {
-  order: Order | null | undefined
+  order: OrderWithOptionalItems | null | undefined
+  initialDetail?: OrderDetail | null
   onClose: () => void
 }
 
-export default function OrderDetailModal({ order, onClose }: OrderDetailModalProps) {
+export default function OrderDetailModal({
+  order,
+  initialDetail,
+  onClose,
+}: OrderDetailModalProps) {
+  const titleId = useId()
   const [state, setState] = useState<{
     orderId: number | null
     detail: OrderDetail | null
@@ -41,9 +31,29 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
     error: null,
   })
 
+  const inlineItems = Array.isArray(order?.items)
+    ? order!.items
+    : initialDetail && order && initialDetail.id === order.id && Array.isArray(initialDetail.items)
+      ? initialDetail.items
+      : undefined
+
   useEffect(() => {
     if (!order?.id) {
       setState({ orderId: null, detail: null, error: null })
+      return
+    }
+
+    if (inlineItems) {
+      setState({
+        orderId: order.id,
+        detail: {
+          id: order.id,
+          status: order.status,
+          created_at: order.created_at,
+          items: inlineItems,
+        },
+        error: null,
+      })
       return
     }
 
@@ -70,23 +80,22 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
     return () => {
       active = false
     }
-  }, [order?.id])
+  }, [order?.id, order?.status, order?.created_at, inlineItems])
 
   if (!order) return null
 
-  const isLoading = state.orderId !== order.id
+  const resolvedItems = inlineItems ?? (state.orderId === order.id ? state.detail?.items : undefined)
+  const isLoading = !inlineItems && state.orderId !== order.id
+  const errorMessage = !inlineItems && state.orderId === order.id ? state.error : null
   const displayStatus =
     order.status === 'cancelled'
       ? 'cancelled'
       : (state.orderId === order.id && state.detail?.status) || order.status
 
-  const titleId = useId()
-  if (!order) return null
-
   return (
     <Dialog open={Boolean(order)} onOpenChange={onClose} aria-labelledby={titleId}>
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold">Order #{order.id}</h2>
+        <h2 id={titleId} className="text-lg font-semibold">Order #{order.id}</h2>
         <div>Status: {displayStatus}</div>
         <div>Items:</div>
         {isLoading && (
@@ -94,27 +103,18 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
             Loading order details...
           </div>
         )}
-        {!isLoading && state.error && (
-          <div role="alert" className="text-sm text-red-600">
-            {state.error}
+        {!isLoading && errorMessage && (
+          <div role="alert" className="text-sm text-red-800">
+            {errorMessage}
           </div>
         )}
-        {!isLoading && !state.error && (
+        {!isLoading && !errorMessage && (
           <ul className="list-disc ml-5">
-            {state.detail?.items?.map((it) => (
+            {resolvedItems?.map((it) => (
               <li key={it.id}>{it.product?.name ?? 'Item'} × {it.quantity}</li>
             ))}
           </ul>
         )}
-        <Button className="mt-3" onClick={onClose}>Close</Button>
-        <h2 id={titleId} className="text-lg font-semibold">Order #{order.id}</h2>
-        <div>Status: {order.status}</div>
-        <div>Items:</div>
-        <ul className="list-disc ml-5">
-          {order.items?.map((it) => (
-            <li key={it.id}>{it.product?.name ?? 'Item'} × {it.quantity}</li>
-          ))}
-        </ul>
         <Button type="button" className="mt-3" onClick={onClose}>Close</Button>
       </div>
     </Dialog>

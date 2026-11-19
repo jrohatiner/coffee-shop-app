@@ -10,7 +10,6 @@ export default function Login(){
   const r = useRouter()
   const [username,setU]=useState(''); const [password,setP]=useState('')
   const [errors, setErrors] = useState<{ username?: string; password?: string }>({})
-  const submit = async ()=>{
   const submit = async (e?: React.FormEvent)=>{
     e?.preventDefault()
     try{
@@ -34,37 +33,18 @@ export default function Login(){
   return (
     <div className="p-6 max-w-md mx-auto space-y-3">
       <h1 className="text-2xl font-bold">Login</h1>
-      <Input
-        label="Username"
-        placeholder="Username"
-        value={username}
-        error={errors.username}
-        onChange={e=>{
-          const val = (e.target as HTMLInputElement).value
-          setU(val)
-          if (errors.username) setErrors(prev => ({ ...prev, username: undefined }))
-        }}
-      />
-      <Input
-        label="Password"
-        placeholder="Password"
-        type="password"
-        value={password}
-        error={errors.password}
-        onChange={e=>{
-          const val = (e.target as HTMLInputElement).value
-          setP(val)
-          if (errors.password) setErrors(prev => ({ ...prev, password: undefined }))
-        }}
-      />
-      <Button onClick={submit}>Sign in</Button>
       <form onSubmit={submit} className="space-y-3">
         <Input
           label="Username"
           name="username"
           autoComplete="username"
           value={username}
-          onChange={e=>setU((e.target as HTMLInputElement).value)}
+          error={errors.username}
+          onChange={e=>{
+            const val = (e.target as HTMLInputElement).value
+            setU(val)
+            if (errors.username) setErrors(prev => ({ ...prev, username: undefined }))
+          }}
         />
         <Input
           label="Password"
@@ -72,7 +52,12 @@ export default function Login(){
           type="password"
           autoComplete="current-password"
           value={password}
-          onChange={e=>setP((e.target as HTMLInputElement).value)}
+          error={errors.password}
+          onChange={e=>{
+            const val = (e.target as HTMLInputElement).value
+            setP(val)
+            if (errors.password) setErrors(prev => ({ ...prev, password: undefined }))
+          }}
         />
         <Button type="submit">Sign in</Button>
       </form>

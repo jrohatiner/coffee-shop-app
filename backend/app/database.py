@@ -17,7 +17,6 @@ if INSTANCE_SOCKET and not DATABASE_URL.startswith("sqlite"):
 
 connect_args = (
     {"check_same_thread": False}
-    if DATABASE_URL and DATABASE_URL.startswith("sqlite")
     if DATABASE_URL.startswith("sqlite")
     else {"sslmode": "disable"}
 )
