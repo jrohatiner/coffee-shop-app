@@ -2,6 +2,7 @@
 import { useAuth } from '../hooks/useAuth'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import api from '../lib/api'
+import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
 import {
@@ -64,11 +65,10 @@ export const OrderCreator = memo(function OrderCreator({
   const [cart, setCart] = useState<Record<number, number>>({})
   const [status, setStatus] = useState<OrderStatus>('pending')
 
-  const productById = useMemo(() => {
-    const map = new Map<number, Product>()
-    for (const p of products) map.set(p.id, p)
-    return map
-  }, [products])
+  const productById = useMemo(
+    () => new Map<number, Product>(products.map(p => [p.id, p])),
+    [products]
+  )
 
   const setQty = useCallback((pid: number, qty: number) => {
     const normalizedQty = Number.isNaN(qty) ? 0 : qty
@@ -167,19 +167,22 @@ export const OrderCreator = memo(function OrderCreator({
 
 export const OrderRow = memo(function OrderRow({
   order,
+  formattedCreatedAt,
   onSelect,
   onCancel,
 }: {
   order: Order
+  formattedCreatedAt?: string
   onSelect: (order: Order) => void
   onCancel: (id: number) => void
 }) {
   const contextLabel = `order #${order.id}`
+  const displayDate = formattedCreatedAt ?? formatOrderDate(order.created_at)
   return (
     <TableRow>
       <TableRowHeader>{order.id}</TableRowHeader>
       <TableCell>{order.status}</TableCell>
-      <TableCell>{new Date(order.created_at).toLocaleString()}</TableCell>
+      <TableCell>{displayDate}</TableCell>
       <TableCell className="flex gap-2">
         <Button contextLabel={contextLabel} onClick={() => onSelect(order)}>
           View
@@ -203,6 +206,11 @@ export const OrdersTable = memo(function OrdersTable({
   onSelect: (order: Order) => void
   onCancel: (id: number) => void
 }) {
+  const orderRows = useMemo(
+    () => orders.map(order => ({ order, formattedCreatedAt: formatOrderDate(order.created_at) })),
+    [orders]
+  )
+
   return (
     <section>
       <Table caption="Orders" hideCaption>
@@ -215,8 +223,14 @@ export const OrdersTable = memo(function OrdersTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {orders.map(o => (
-            <OrderRow key={o.id} order={o} onSelect={onSelect} onCancel={onCancel} />
+          {orderRows.map(({ order: o, formattedCreatedAt }) => (
+            <OrderRow
+              key={o.id}
+              order={o}
+              formattedCreatedAt={formattedCreatedAt}
+              onSelect={onSelect}
+              onCancel={onCancel}
+            />
           ))}
         </TableBody>
       </Table>
