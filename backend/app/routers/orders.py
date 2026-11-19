@@ -13,6 +13,7 @@ router = APIRouter()
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
+ALLOWED_ORDER_STATUSES = {s.value for s in schemas.OrderStatus}
 
 
 def _orders_with_details_query(db: Session):
@@ -28,7 +29,6 @@ def _get_order_with_details(db: Session, order_id: int) -> Optional[models.Order
         .filter(models.Order.id == order_id)
         .first()
     )
-
 
 def _serialize_order(order: models.Order) -> schemas.OrderOut:
     if all(it.product is not None for it in order.items):
@@ -209,7 +209,14 @@ def update_order(
 ):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
-        raise HTTPException(404, "Order not found")
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if not (current_user.is_manager or order.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to update this order")
+
+    if status not in ALLOWED_ORDER_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid order status")
+
     order.status = status
     db.commit()
     updated_order = _get_order_with_details(db, order_id)
