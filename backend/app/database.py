@@ -8,7 +8,7 @@ try:
 except Exception:
     pass
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./dev.db"
 INSTANCE_SOCKET = os.getenv("INSTANCE_UNIX_SOCKET")
 
 if INSTANCE_SOCKET and DATABASE_URL and DATABASE_URL.startswith("postgresql"):
