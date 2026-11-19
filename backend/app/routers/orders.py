@@ -1,12 +1,14 @@
 from datetime import date, datetime, time, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
-from app import models, schemas, auth
+from app import auth, database, models, schemas
 from app.database import get_db
 from app.websockets import sio
 
@@ -39,6 +41,7 @@ def _get_order_with_details(db: Session, order_id: int) -> Optional[models.Order
         .filter(models.Order.id == order_id)
         .first()
     )
+
 
 def _serialize_order(order: models.Order) -> schemas.OrderOut:
     if all(it.product is not None for it in order.items):
@@ -78,59 +81,128 @@ def _serialize_order(order: models.Order) -> schemas.OrderOut:
     )
 
 
+def _create_order_sync(
+    user_id: Optional[int],
+    order: schemas.OrderCreate,
+    request: Request,
+) -> schemas.OrderOut:
+    with database.session_scope(request) as db:
+        product_ids = sorted({item.product_id for item in order.items})
+        product_map: Dict[int, models.Product] = {}
+        if product_ids:
+            products = (
+                db.query(models.Product)
+                .filter(models.Product.id.in_(product_ids))
+                .order_by(models.Product.id)
+                .with_for_update()
+                .all()
+            )
+            product_map = {prod.id: prod for prod in products}
+
+        requested_quantities: Dict[int, int] = {}
+        for item in order.items:
+            prod = product_map.get(item.product_id)
+            if not prod:
+                raise HTTPException(400, f"Product {item.product_id} does not exist")
+            if item.quantity <= 0:
+                raise HTTPException(400, f"Invalid quantity for product {prod.name}")
+            requested_quantities[item.product_id] = (
+                requested_quantities.get(item.product_id, 0) + item.quantity
+            )
+
+        for product_id, total_quantity in requested_quantities.items():
+            prod = product_map[product_id]
+            if prod.stock < total_quantity:
+                raise HTTPException(
+                    400,
+                    f"Insufficient stock for {prod.name}. Available: {prod.stock}, requested: {total_quantity}",
+                )
+
+        for product_id, total_quantity in requested_quantities.items():
+            product_map[product_id].stock -= total_quantity
+
+        db_order = models.Order(user_id=user_id, status=order.status)
+        db_order.items = [
+            models.OrderItem(
+                product_id=item.product_id,
+                quantity=item.quantity,
+                product=product_map[item.product_id],
+            )
+            for item in order.items
+        ]
+        db.add(db_order)
+        db.flush()
+
+        order_out = _serialize_order(db_order)
+        db.commit()
+        return order_out
+
+
+def _cancel_order_sync(
+    order_id: int,
+    request: Request,
+) -> Tuple[schemas.OrderOut, bool]:
+    with database.session_scope(request) as db:
+        order = (
+            db.query(models.Order)
+            .options(selectinload(models.Order.items))
+            .filter(models.Order.id == order_id)
+            .first()
+        )
+        if not order:
+            raise HTTPException(404, "Order not found")
+
+        product_ids = sorted({it.product_id for it in order.items})
+        product_map: Dict[int, models.Product] = {}
+        if product_ids:
+            product_query = (
+                db.query(models.Product)
+                .filter(models.Product.id.in_(product_ids))
+                .order_by(models.Product.id)
+            )
+            if order.status != "cancelled":
+                product_query = product_query.with_for_update()
+            products = product_query.all()
+            product_map = {prod.id: prod for prod in products}
+
+        for it in order.items:
+            set_committed_value(it, "product", product_map.get(it.product_id))
+
+        if order.status == "cancelled":
+            return _serialize_order(order), False
+
+        restock_quantities: Dict[int, int] = {}
+        for it in order.items:
+            restock_quantities[it.product_id] = (
+                restock_quantities.get(it.product_id, 0) + it.quantity
+            )
+
+        for product_id, total_quantity in restock_quantities.items():
+            prod = product_map.get(product_id)
+            if prod:
+                prod.stock += total_quantity
+
+        order.status = "cancelled"
+        db.flush()
+
+        order_out = _serialize_order(order)
+        db.commit()
+        return order_out, True
+
+
 @router.post("/", response_model=schemas.OrderOut)
 @router.post("", response_model=schemas.OrderOut, include_in_schema=False)
 async def create_order(
     order: schemas.OrderCreate,
-    db: Session = Depends(get_db),
+    request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    product_ids = sorted({item.product_id for item in order.items})
-    product_map: Dict[int, models.Product] = {}
-    if product_ids:
-        products = (
-            db.query(models.Product)
-            .filter(models.Product.id.in_(product_ids))
-            .order_by(models.Product.id)
-            .with_for_update()
-            .all()
-        )
-        product_map = {prod.id: prod for prod in products}
-
-    requested_quantities: Dict[int, int] = {}
-    for item in order.items:
-        prod = product_map.get(item.product_id)
-        if not prod:
-            raise HTTPException(400, f"Product {item.product_id} does not exist")
-        if item.quantity <= 0:
-            raise HTTPException(400, f"Invalid quantity for product {prod.name}")
-        requested_quantities[item.product_id] = (
-            requested_quantities.get(item.product_id, 0) + item.quantity
-        )
-
-    for product_id, total_quantity in requested_quantities.items():
-        prod = product_map[product_id]
-        if prod.stock < total_quantity:
-            raise HTTPException(
-                400,
-                f"Insufficient stock for {prod.name}. Available: {prod.stock}, requested: {total_quantity}",
-            )
-
-    for product_id, total_quantity in requested_quantities.items():
-        product_map[product_id].stock -= total_quantity
-
-    db_order = models.Order(user_id=current_user.id, status=order.status)
-    db_order.items = [
-        models.OrderItem(
-            product_id=item.product_id,
-            quantity=item.quantity,
-            product=product_map[item.product_id],
-        )
-        for item in order.items
-    ]
-    db.add(db_order)
-    db.flush()
-
+    order_out = await run_in_threadpool(
+        _create_order_sync,
+        current_user.id,
+        order,
+        request,
+    )
     order_out = _serialize_order(db_order)
     order_summary = _serialize_order_summary(order_out)
     db.commit()
@@ -145,15 +217,17 @@ async def create_order(
 @router.post("/{order_id}/cancel", response_model=schemas.OrderOut)
 async def cancel_order(
     order_id: int,
-    db: Session = Depends(get_db),
+    request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    order = (
-        db.query(models.Order)
-        .options(selectinload(models.Order.items))
-        .filter(models.Order.id == order_id)
-        .first()
+    order_out, did_cancel = await run_in_threadpool(
+        _cancel_order_sync,
+        order_id,
+        request,
     )
+    if did_cancel:
+        await sio.emit("stock_update")
+        await sio.emit("order_cancelled", {"order_id": order_out.id})
     if not order:
         raise HTTPException(404, "Order not found")
 
