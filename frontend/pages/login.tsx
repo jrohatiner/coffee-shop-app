@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter } from 'next/router'
 import api from '../lib/api'
 import Input from '../components/ui/Input'
@@ -11,6 +11,8 @@ export default function Login(){
   const [username,setU]=useState(''); const [password,setP]=useState('')
   const [errors, setErrors] = useState<{ username?: string; password?: string }>({})
   const submit = async ()=>{
+  const submit = async (e?: React.FormEvent)=>{
+    e?.preventDefault()
     try{
       const form = new URLSearchParams({username,password})
       const res = await api.post('/auth/token', form, { headers: {'Content-Type':'application/x-www-form-urlencoded'} })
@@ -56,6 +58,24 @@ export default function Login(){
         }}
       />
       <Button onClick={submit}>Sign in</Button>
+      <form onSubmit={submit} className="space-y-3">
+        <Input
+          label="Username"
+          name="username"
+          autoComplete="username"
+          value={username}
+          onChange={e=>setU((e.target as HTMLInputElement).value)}
+        />
+        <Input
+          label="Password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={e=>setP((e.target as HTMLInputElement).value)}
+        />
+        <Button type="submit">Sign in</Button>
+      </form>
     </div>
   )
 }

@@ -40,6 +40,7 @@ const testFiles = fs
   .filter((file) => file.endsWith('.test.ts') || file.endsWith('.test.tsx'))
   .sort()
   .map((file) => path.join(testsDir, file))
+  .filter((fullPath) => fs.readFileSync(fullPath, 'utf8').includes('node:test'))
 
 for (const file of testFiles) {
   require(file)

@@ -1,13 +1,226 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useSocket } from '../hooks/useSocket'
 
-type Product = { id: number; name: string; price: number; stock: number }
+export type Product = { id: number; name: string; price: number; stock: number }
+
+export const CreateProductForm = memo(function CreateProductForm({
+  onCreated,
+}: {
+  onCreated: () => void
+}) {
+  const [newItem, setNewItem] = useState<{ name: string; price: number; stock: number }>({
+    name: '',
+    price: 0,
+    stock: 0,
+  })
+
+  const create = async () => {
+    if (!newItem.name.trim()) {
+      toast({ title: 'Name required', variant: 'destructive' })
+      return
+    }
+    try {
+      await api.post('/inventory', newItem)
+      toast({ title: 'Product created', description: newItem.name })
+      setNewItem({ name: '', price: 0, stock: 0 })
+      onCreated()
+    } catch (e: any) {
+      toast({
+        title: 'Error',
+        description: e?.response?.data?.detail ?? 'Failed to create',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  return (
+    <section className="border rounded p-4 space-y-3">
+      <h2 className="font-semibold text-lg">Create New Product</h2>
+      <div className="grid gap-3 max-w-lg">
+        <Input
+          placeholder="Name"
+          value={newItem.name}
+          onChange={e =>
+            setNewItem(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))
+          }
+        />
+        <Input
+          type="number"
+          placeholder="Price"
+          value={newItem.price}
+          onChange={e => {
+            const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
+            setNewItem(prev => ({
+              ...prev,
+              price: Number.isNaN(nextPrice) ? 0 : nextPrice,
+            }))
+          }}
+        />
+        <Input
+          type="number"
+          placeholder="Stock"
+          value={newItem.stock}
+          onChange={e => {
+            const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
+            setNewItem(prev => ({
+              ...prev,
+              stock: Number.isNaN(nextStock) ? 0 : nextStock,
+            }))
+          }}
+        />
+        <Button onClick={create}>Add Product</Button>
+      </div>
+    </section>
+  )
+})
+
+export const ProductRow = memo(function ProductRow({
+function ProductInventoryCard({
+  product,
+  onSave,
+  onDelete,
+}: {
+  product: Product
+  onSave: (p: Product) => void
+  onDelete: (id: number) => void
+}) {
+  const [draft, setDraft] = useState<{ name: string; price: number; stock: number }>({
+    name: product.name,
+    price: product.price,
+    stock: product.stock,
+  const baseId = useId()
+  const legendId = `${baseId}-legend`
+  const nameLabelId = `${baseId}-name-label`
+  const priceLabelId = `${baseId}-price-label`
+  const stockLabelId = `${baseId}-stock-label`
+
+  const [draft, setDraft] = useState({
+    name: product.name,
+    price: String(product.price),
+    stock: String(product.stock),
+  })
+
+  useEffect(() => {
+    setDraft({
+      name: product.name,
+      price: product.price,
+      stock: product.stock,
+    })
+  }, [product])
+
+  const productLabel = draft.name.trim() || `Product #${product.id}`
+
+  return (
+    <fieldset className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
+      <legend className="px-1 font-medium">{productLabel}</legend>
+      <div className="grid gap-2">
+        <Input
+          value={draft.name}
+          onChange={e =>
+            setDraft(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))
+          }
+        />
+        <Input
+          type="number"
+          value={draft.price}
+          onChange={e => {
+            const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
+            setDraft(prev => ({
+              ...prev,
+              price: Number.isNaN(nextPrice) ? 0 : nextPrice,
+            }))
+          }}
+        />
+        <Input
+          type="number"
+          value={draft.stock}
+          onChange={e => {
+            const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
+            setDraft(prev => ({
+              ...prev,
+              stock: Number.isNaN(nextStock) ? 0 : nextStock,
+            }))
+          }}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button contextLabel={productLabel} onClick={() => onSave({ ...product, ...draft })}>
+          Save
+        </Button>
+        <Button contextLabel={productLabel} onClick={() => onDelete(product.id)}>
+          Delete
+        </Button>
+      </div>
+    </fieldset>
+  )
+})
+
+export default function Inventory() {
+  const user = useAuth()
+  const [products, setProducts] = useState<Product[]>([])
+      price: String(product.price),
+      stock: String(product.stock),
+    })
+  }, [product.name, product.price, product.stock])
+
+  const handleSave = () => {
+    const parsedPrice = draft.price.trim() === '' ? 0 : parseFloat(draft.price)
+    const parsedStock = draft.stock.trim() === '' ? 0 : parseInt(draft.stock, 10)
+    onSave({
+      ...product,
+      name: draft.name,
+      price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
+      stock: Number.isNaN(parsedStock) ? 0 : parsedStock,
+    })
+  }
+
+  const productLabel = product.name.trim() || `Product #${product.id}`
+
+  return (
+    <fieldset className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
+      <legend id={legendId} className="px-1 font-medium">
+        {productLabel}
+      </legend>
+      <div className="grid gap-2">
+        <Input
+          label="Name"
+          labelId={nameLabelId}
+          aria-labelledby={`${legendId} ${nameLabelId}`}
+          value={draft.name}
+          onChange={e => setDraft({ ...draft, name: (e.target as HTMLInputElement).value })}
+        />
+        <Input
+          label="Price"
+          labelId={priceLabelId}
+          aria-labelledby={`${legendId} ${priceLabelId}`}
+          type="number"
+          step="0.01"
+          value={draft.price}
+          onChange={e => setDraft({ ...draft, price: (e.target as HTMLInputElement).value })}
+        />
+        <Input
+          label="Stock"
+          labelId={stockLabelId}
+          aria-labelledby={`${legendId} ${stockLabelId}`}
+          type="number"
+          value={draft.stock}
+          onChange={e => setDraft({ ...draft, stock: (e.target as HTMLInputElement).value })}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button type="button" contextLabel={productLabel} onClick={handleSave}>Save</Button>
+        <Button type="button" contextLabel={productLabel} onClick={() => onDelete(product.id)}>Delete</Button>
+      </div>
+    </fieldset>
+  )
+}
 
 export default function Inventory(){
   const user = useAuth()
@@ -21,13 +234,56 @@ export default function Inventory(){
   useSocket(s=>{
     s.on('stock_update', ()=>{ toast({title:'Inventory Changed'}); load() })
   }, Boolean(user))
+  const [newItem, setNewItem] = useState<{name:string;price:string;stock:string}>({name:'',price:'',stock:''})
 
-  if(!user) return null
+  const load = useCallback(() => {
+    api.get('/inventory').then(r => setProducts(r.data))
+  }, [])
 
-  const updateProduct = (id: number, patch: Partial<Product>) => {
-    setProducts(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)))
-  }
+  useEffect(() => {
+    if (user) load()
+  }, [user, load])
 
+  const handleSocket = useCallback(
+    (s: any) => {
+      s.on('stock_update', () => {
+        toast({ title: 'Inventory Changed' })
+        load()
+      })
+    },
+    [load]
+  )
+  useSocket(handleSocket, Boolean(user))
+
+  const save = useCallback(
+    async (p: Product) => {
+      try {
+        await api.put(`/inventory/${p.id}`, p)
+        toast({ title: 'Saved', description: p.name })
+        load()
+      } catch {
+        toast({ title: 'Error', description: 'Failed to save', variant: 'destructive' })
+      }
+    },
+    [load]
+  )
+
+  const del = useCallback(
+    async (id: number) => {
+      try {
+        await api.delete(`/inventory/${id}`)
+        toast({ title: 'Product deleted' })
+        load()
+      } catch (e: any) {
+        toast({
+          title: 'Error',
+          description: e?.response?.data?.detail ?? 'Failed to delete',
+          variant: 'destructive',
+        })
+      }
+    },
+    [load]
+  )
   const save = async (p: Product) => {
     const missingName = !p.name.trim()
     try{
@@ -60,8 +316,17 @@ export default function Inventory(){
     try{
       await api.post('/inventory', newItem)
       setNameError('')
+    if(!newItem.name.trim()){ toast({title:'Name required', variant:'destructive'}); return }
+    const parsedPrice = newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
+    const parsedStock = newItem.stock.trim() === '' ? 0 : parseInt(newItem.stock, 10)
+    try{
+      await api.post('/inventory', {
+        name: newItem.name,
+        price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
+        stock: Number.isNaN(parsedStock) ? 0 : parsedStock,
+      })
       toast({title:'Product created', description:newItem.name})
-      setNewItem({name:'',price:0,stock:0})
+      setNewItem({name:'',price:'',stock:''})
       load()
     } catch(e:any){
       const detail = e?.response?.data?.detail ?? 'Failed to create'
@@ -70,21 +335,14 @@ export default function Inventory(){
     }
   }
 
-  const del = async (id:number) => {
-    try{
-      await api.delete(`/inventory/${id}`)
-      toast({title:'Product deleted'})
-      load()
-    } catch(e:any){
-      toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to delete', variant:'destructive'})
-    }
-  }
+  if (!user) return null
 
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">Inventory</h1>
 
       {/* Create New Product */}
+      <CreateProductForm onCreated={load} />
       <section className="border rounded p-4 space-y-3">
         <h2 className="font-semibold text-lg">Create New Product</h2>
         <div className="grid gap-3 max-w-lg">
@@ -98,6 +356,10 @@ export default function Inventory(){
               setNewItem({...newItem, name: val})
               if (val.trim() && nameError) setNameError('')
             }}
+            label="Name"
+            placeholder="e.g. Flat White"
+            value={newItem.name}
+            onChange={e=>setNewItem({...newItem, name:(e.target as HTMLInputElement).value})}
           />
           <Input
             label="Price"
@@ -105,6 +367,11 @@ export default function Inventory(){
             placeholder="Price"
             value={newItem.price}
             onChange={e=>setNewItem({...newItem, price: parseFloat((e.target as HTMLInputElement).value || '0')})}
+            step="0.01"
+            min={0}
+            placeholder="e.g. 4.50"
+            value={newItem.price}
+            onChange={e=>setNewItem({...newItem, price:(e.target as HTMLInputElement).value})}
           />
           <Input
             label="Stock"
@@ -112,6 +379,10 @@ export default function Inventory(){
             placeholder="Stock"
             value={newItem.stock}
             onChange={e=>setNewItem({...newItem, stock: parseInt((e.target as HTMLInputElement).value || '0')})}
+            min={0}
+            placeholder="e.g. 50"
+            value={newItem.stock}
+            onChange={e=>setNewItem({...newItem, stock:(e.target as HTMLInputElement).value})}
           />
           <Button onClick={create}>Add Product</Button>
         </div>
@@ -168,6 +439,16 @@ export default function Inventory(){
             </fieldset>
           )
         })}
+        {products.map(p => (
+          <ProductRow key={p.id} product={p} onSave={save} onDelete={del} />
+        {products.map(p=>(
+          <ProductInventoryCard
+            key={p.id}
+            product={p}
+            onSave={save}
+            onDelete={del}
+          />
+        ))}
       </section>
     </div>
   )
