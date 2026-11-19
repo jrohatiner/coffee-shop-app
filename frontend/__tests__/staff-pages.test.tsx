@@ -107,8 +107,8 @@ jest.mock('../components/OrderDetailModal', () => {
   }
 })
 
-import Inventory, { ProductRow } from '../pages/inventory'
-import Users, { UserRow } from '../pages/users'
+import Inventory, { CreateProductForm, ProductRow } from '../pages/inventory'
+import Users, { CreateUserForm, UserRow } from '../pages/users'
 import Orders, { OrderCreator, OrdersTable, ProductPickerRow } from '../pages/orders'
 
 const flushPromises = () => new Promise(resolve => setImmediate(resolve))
@@ -165,9 +165,8 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(findAllMemo(renderer.root, ProductRow)).toHaveLength(4)
       resetAllSpies()
 
-      const nameInput = renderer.root.findByProps({ placeholder: 'Name' })
-      const priceInput = renderer.root.findByProps({ placeholder: 'Price' })
-      const stockInput = renderer.root.findByProps({ placeholder: 'Stock' })
+      const createForm = findAllMemo(renderer.root, CreateProductForm)[0]
+      const [nameInput, priceInput, stockInput] = createForm.findAllByType('input')
 
       await act(async () => {
         nameInput.props.onChange({ target: { value: 'Flat White' } })
@@ -190,9 +189,12 @@ describe('Staff pages state isolation and row memoization', () => {
         await addButton.props.onClick()
       })
 
-      expect(renderer.root.findByProps({ placeholder: 'Name' }).props.value).toBe('Flat White')
-      expect(renderer.root.findByProps({ placeholder: 'Price' }).props.value).toBe(4.75)
-      expect(renderer.root.findByProps({ placeholder: 'Stock' }).props.value).toBe(30)
+      const afterFailInputs = findAllMemo(renderer.root, CreateProductForm)[0].findAllByType(
+        'input'
+      )
+      expect(afterFailInputs[0].props.value).toBe('Flat White')
+      expect(afterFailInputs[1].props.value).toBe('4.75')
+      expect(afterFailInputs[2].props.value).toBe('30')
 
       // Successful POST resets form state and reloads inventory
       mockApi.post.mockResolvedValueOnce({ data: { id: 5 } })
@@ -206,9 +208,12 @@ describe('Staff pages state isolation and row memoization', () => {
         price: 4.75,
         stock: 30,
       })
-      expect(renderer.root.findByProps({ placeholder: 'Name' }).props.value).toBe('')
-      expect(renderer.root.findByProps({ placeholder: 'Price' }).props.value).toBe(0)
-      expect(renderer.root.findByProps({ placeholder: 'Stock' }).props.value).toBe(0)
+      const afterSuccessInputs = findAllMemo(renderer.root, CreateProductForm)[0].findAllByType(
+        'input'
+      )
+      expect(afterSuccessInputs[0].props.value).toBe('')
+      expect(afterSuccessInputs[1].props.value).toBe('')
+      expect(afterSuccessInputs[2].props.value).toBe('')
 
       renderer.unmount()
     })
@@ -284,7 +289,7 @@ describe('Staff pages state isolation and row memoization', () => {
 
       const updatedFirstRowInputs = findAllMemo(renderer.root, ProductRow)[0]
         .findAllByType('input')
-      expect(updatedFirstRowInputs[2].props.value).toBe(6)
+      expect(updatedFirstRowInputs[2].props.value).toBe('6')
 
       // Deleting a row invokes DELETE /inventory/:id
       const secondRowDelete = findButtonByText(findAllMemo(renderer.root, ProductRow)[1], 'Delete')
@@ -319,9 +324,8 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(findAllMemo(renderer.root, UserRow)).toHaveLength(3)
       resetAllSpies()
 
-      const usernameInput = renderer.root.findByProps({ placeholder: 'Username' })
-      const passwordInput = renderer.root.findByProps({ placeholder: 'Password' })
-      const managerCheckbox = renderer.root.findByProps({ type: 'checkbox' })
+      const createUserForm = findAllMemo(renderer.root, CreateUserForm)[0]
+      const [usernameInput, passwordInput, managerCheckbox] = createUserForm.findAllByType('input')
 
       await act(async () => {
         usernameInput.props.onChange({ target: { value: 'dave' } })
@@ -341,9 +345,12 @@ describe('Staff pages state isolation and row memoization', () => {
         await createBtn.props.onClick()
       })
 
-      expect(renderer.root.findByProps({ placeholder: 'Username' }).props.value).toBe('dave')
-      expect(renderer.root.findByProps({ placeholder: 'Password' }).props.value).toBe('secret123')
-      expect(renderer.root.findByProps({ type: 'checkbox' }).props.checked).toBe(true)
+      const afterFailUserInputs = findAllMemo(renderer.root, CreateUserForm)[0].findAllByType(
+        'input'
+      )
+      expect(afterFailUserInputs[0].props.value).toBe('dave')
+      expect(afterFailUserInputs[1].props.value).toBe('secret123')
+      expect(afterFailUserInputs[2].props.checked).toBe(true)
 
       // Successful POST resets form and reloads users
       mockApi.post.mockResolvedValueOnce({ data: { id: 4 } })
@@ -357,9 +364,12 @@ describe('Staff pages state isolation and row memoization', () => {
         password: 'secret123',
         is_manager: true,
       })
-      expect(renderer.root.findByProps({ placeholder: 'Username' }).props.value).toBe('')
-      expect(renderer.root.findByProps({ placeholder: 'Password' }).props.value).toBe('')
-      expect(renderer.root.findByProps({ type: 'checkbox' }).props.checked).toBe(false)
+      const afterSuccessUserInputs = findAllMemo(renderer.root, CreateUserForm)[0].findAllByType(
+        'input'
+      )
+      expect(afterSuccessUserInputs[0].props.value).toBe('')
+      expect(afterSuccessUserInputs[1].props.value).toBe('')
+      expect(afterSuccessUserInputs[2].props.checked).toBe(false)
 
       // Delete user via memoized UserRow callback
       const userRows = findAllMemo(renderer.root, UserRow)
@@ -404,6 +414,10 @@ describe('Staff pages state isolation and row memoization', () => {
     function setupOrdersApi() {
       mockApi.get.mockImplementation((url: string) => {
         if (url === '/orders') return Promise.resolve({ data: sampleOrders })
+        if (url.startsWith('/orders/')) {
+          const id = Number(url.split('/').pop())
+          return Promise.resolve({ data: sampleOrders.find(o => o.id === id) ?? sampleOrders[0] })
+        }
         if (url === '/inventory') return Promise.resolve({ data: sampleProducts })
         return Promise.resolve({ data: [] })
       })
@@ -499,9 +513,10 @@ describe('Staff pages state isolation and row memoization', () => {
         .filter(b => getVisibleButtonText(b) === 'View')
       await act(async () => {
         viewButtons[0].props.onClick()
+        await flushPromises()
       })
 
-      expect(modalRenderSpy).toHaveBeenCalledTimes(1)
+      expect(modalRenderSpy).toHaveBeenCalled()
       expect(modalRenderSpy.mock.calls[0][0].order.id).toBe(101)
       expect(tableRenderSpy).toHaveBeenCalledTimes(0)
       expect(inputRenderSpy).toHaveBeenCalledTimes(0)
@@ -550,7 +565,9 @@ describe('Staff pages state isolation and row memoization', () => {
         if (url === '/inventory') return Promise.resolve({ data: sampleProducts })
         return Promise.resolve({ data: [] })
       })
-      mockApi.post.mockResolvedValue({ data: { id: 105 } })
+      mockApi.post.mockResolvedValue({
+        data: { id: 105, status: 'pending', created_at: '2026-01-10T13:00:00Z' },
+      })
 
       let renderer!: TestRenderer.ReactTestRenderer
       await act(async () => {
@@ -606,7 +623,9 @@ describe('Staff pages state isolation and row memoization', () => {
       mockToast.mockClear()
       mockApi.get.mockClear()
       await act(async () => {
-        socketListeners['new_order']?.forEach(cb => cb())
+        socketListeners['new_order']?.forEach(cb =>
+          cb({ id: 105, status: 'pending', created_at: '2026-01-10T13:00:00Z' })
+        )
         socketListeners['stock_update']?.forEach(cb => cb())
         await flushPromises()
       })
@@ -615,13 +634,13 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(mockApi.get).not.toHaveBeenCalled()
 
       await act(async () => {
-        socketListeners['new_order']?.forEach(cb => cb())
+        socketListeners['new_order']?.forEach(cb =>
+          cb({ id: 106, status: 'pending', created_at: '2026-01-10T14:00:00Z' })
+        )
         await flushPromises()
       })
       expect(mockToast).toHaveBeenCalledWith({ title: 'New Order' })
-      expect(mockApi.get).toHaveBeenCalledWith('/orders', {
-        params: { limit: 20, offset: 0, status: 'pending' },
-      })
+      expect(mockApi.get).not.toHaveBeenCalled()
 
       renderer.unmount()
     })

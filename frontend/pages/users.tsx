@@ -82,18 +82,19 @@ export const CreateUserForm = memo(function CreateUserForm({
   }
 
   return (
-    <div className="border rounded p-4 space-y-2">
+    <div className="border rounded p-4 space-y-3">
       <h2 className="font-semibold">Create</h2>
       <Input
-        placeholder="Username"
+        label="Username"
         value={form.username}
         onChange={e =>
           setForm(prev => ({ ...prev, username: (e.target as HTMLInputElement).value }))
         }
       />
       <Input
-        placeholder="Password"
+        label="Password"
         type="password"
+        autoComplete="new-password"
         value={form.password}
         onChange={e =>
           setForm(prev => ({ ...prev, password: (e.target as HTMLInputElement).value }))
