@@ -1,5 +1,11 @@
 import os
+import sys
+from pathlib import Path
 import pytest
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 # Ensure a secure JWT secret and test SQLite database are set for test session
 os.environ["JWT_SECRET"] = "super-secret-test-key-for-auth-tests"
@@ -20,6 +26,7 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated=["auto"])
 
+
 def override_get_db():
     db = TestingSessionLocal()
     try:
@@ -27,7 +34,9 @@ def override_get_db():
     finally:
         db.close()
 
+
 app.dependency_overrides[get_db] = override_get_db
+
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
@@ -50,11 +59,30 @@ def setup_test_db():
     db.close()
     yield
     Base.metadata.drop_all(bind=test_engine)
+    test_engine.dispose()
     if os.path.exists("./test.db"):
         try:
             os.remove("./test.db")
         except OSError:
             pass
+
+
+@pytest.fixture
+def db_session():
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.query(models.OrderItem).delete()
+        session.query(models.Order).delete()
+        session.query(models.Product).delete()
+        session.query(models.User).filter(
+            ~models.User.username.in_(["manager", "staff"])
+        ).delete(synchronize_session=False)
+        session.commit()
+        session.close()
+
 
 @pytest.fixture
 def client():
