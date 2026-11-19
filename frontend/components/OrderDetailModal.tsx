@@ -26,6 +26,8 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
   const titleId = useId()
   if (!order) return null
 
+import Button from './ui/Button'
+export default function OrderDetailModal({ order, onClose }: any) {
   return (
     <Dialog open={Boolean(order)} onOpenChange={onClose} aria-labelledby={titleId}>
       <div className="space-y-2">
@@ -38,6 +40,7 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
           ))}
         </ul>
         <Button type="button" className="mt-3" onClick={onClose}>Close</Button>
+        <Button className="mt-3" onClick={onClose}>Close</Button>
       </div>
     </Dialog>
   )
