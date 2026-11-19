@@ -1,7 +1,6 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { memo, useCallback, useEffect, useState } from 'react'
-import { useEffect, useId, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useState } from 'react'
 import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
@@ -15,10 +14,10 @@ export const CreateProductForm = memo(function CreateProductForm({
 }: {
   onCreated: () => void
 }) {
-  const [newItem, setNewItem] = useState<{ name: string; price: number; stock: number }>({
+  const [newItem, setNewItem] = useState<{ name: string; price: string; stock: string }>({
     name: '',
-    price: 0,
-    stock: 0,
+    price: '',
+    stock: '',
   })
 
   const create = async () => {
@@ -26,10 +25,16 @@ export const CreateProductForm = memo(function CreateProductForm({
       toast({ title: 'Name required', variant: 'destructive' })
       return
     }
+    const parsedPrice = newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
+    const parsedStock = newItem.stock.trim() === '' ? 0 : parseInt(newItem.stock, 10)
     try {
-      await api.post('/inventory', newItem)
+      await api.post('/inventory', {
+        name: newItem.name,
+        price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
+        stock: Number.isNaN(parsedStock) ? 0 : parsedStock,
+      })
       toast({ title: 'Product created', description: newItem.name })
-      setNewItem({ name: '', price: 0, stock: 0 })
+      setNewItem({ name: '', price: '', stock: '' })
       onCreated()
     } catch (e: any) {
       toast({
@@ -45,35 +50,33 @@ export const CreateProductForm = memo(function CreateProductForm({
       <h2 className="font-semibold text-lg">Create New Product</h2>
       <div className="grid gap-3 max-w-lg">
         <Input
-          placeholder="Name"
+          label="Name"
+          placeholder="e.g. Flat White"
           value={newItem.name}
           onChange={e =>
             setNewItem(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))
           }
         />
         <Input
+          label="Price"
           type="number"
-          placeholder="Price"
+          step="0.01"
+          min={0}
+          placeholder="e.g. 4.50"
           value={newItem.price}
-          onChange={e => {
-            const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
-            setNewItem(prev => ({
-              ...prev,
-              price: Number.isNaN(nextPrice) ? 0 : nextPrice,
-            }))
-          }}
+          onChange={e =>
+            setNewItem(prev => ({ ...prev, price: (e.target as HTMLInputElement).value }))
+          }
         />
         <Input
+          label="Stock"
           type="number"
-          placeholder="Stock"
+          min={0}
+          placeholder="e.g. 50"
           value={newItem.stock}
-          onChange={e => {
-            const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
-            setNewItem(prev => ({
-              ...prev,
-              stock: Number.isNaN(nextStock) ? 0 : nextStock,
-            }))
-          }}
+          onChange={e =>
+            setNewItem(prev => ({ ...prev, stock: (e.target as HTMLInputElement).value }))
+          }
         />
         <Button onClick={create}>Add Product</Button>
       </div>
@@ -82,7 +85,6 @@ export const CreateProductForm = memo(function CreateProductForm({
 })
 
 export const ProductRow = memo(function ProductRow({
-function ProductInventoryCard({
   product,
   onSave,
   onDelete,
@@ -91,10 +93,6 @@ function ProductInventoryCard({
   onSave: (p: Product) => void
   onDelete: (id: number) => void
 }) {
-  const [draft, setDraft] = useState<{ name: string; price: number; stock: number }>({
-    name: product.name,
-    price: product.price,
-    stock: product.stock,
   const baseId = useId()
   const legendId = `${baseId}-legend`
   const nameLabelId = `${baseId}-name-label`
@@ -110,61 +108,6 @@ function ProductInventoryCard({
   useEffect(() => {
     setDraft({
       name: product.name,
-      price: product.price,
-      stock: product.stock,
-    })
-  }, [product])
-
-  const productLabel = draft.name.trim() || `Product #${product.id}`
-
-  return (
-    <fieldset className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
-      <legend className="px-1 font-medium">{productLabel}</legend>
-      <div className="grid gap-2">
-        <Input
-          value={draft.name}
-          onChange={e =>
-            setDraft(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))
-          }
-        />
-        <Input
-          type="number"
-          value={draft.price}
-          onChange={e => {
-            const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
-            setDraft(prev => ({
-              ...prev,
-              price: Number.isNaN(nextPrice) ? 0 : nextPrice,
-            }))
-          }}
-        />
-        <Input
-          type="number"
-          value={draft.stock}
-          onChange={e => {
-            const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
-            setDraft(prev => ({
-              ...prev,
-              stock: Number.isNaN(nextStock) ? 0 : nextStock,
-            }))
-          }}
-        />
-      </div>
-      <div className="flex gap-2">
-        <Button contextLabel={productLabel} onClick={() => onSave({ ...product, ...draft })}>
-          Save
-        </Button>
-        <Button contextLabel={productLabel} onClick={() => onDelete(product.id)}>
-          Delete
-        </Button>
-      </div>
-    </fieldset>
-  )
-})
-
-export default function Inventory() {
-  const user = useAuth()
-  const [products, setProducts] = useState<Product[]>([])
       price: String(product.price),
       stock: String(product.stock),
     })
@@ -194,7 +137,9 @@ export default function Inventory() {
           labelId={nameLabelId}
           aria-labelledby={`${legendId} ${nameLabelId}`}
           value={draft.name}
-          onChange={e => setDraft({ ...draft, name: (e.target as HTMLInputElement).value })}
+          onChange={e =>
+            setDraft(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))
+          }
         />
         <Input
           label="Price"
@@ -203,7 +148,9 @@ export default function Inventory() {
           type="number"
           step="0.01"
           value={draft.price}
-          onChange={e => setDraft({ ...draft, price: (e.target as HTMLInputElement).value })}
+          onChange={e =>
+            setDraft(prev => ({ ...prev, price: (e.target as HTMLInputElement).value }))
+          }
         />
         <Input
           label="Stock"
@@ -211,21 +158,26 @@ export default function Inventory() {
           aria-labelledby={`${legendId} ${stockLabelId}`}
           type="number"
           value={draft.stock}
-          onChange={e => setDraft({ ...draft, stock: (e.target as HTMLInputElement).value })}
+          onChange={e =>
+            setDraft(prev => ({ ...prev, stock: (e.target as HTMLInputElement).value }))
+          }
         />
       </div>
       <div className="flex gap-2">
-        <Button type="button" contextLabel={productLabel} onClick={handleSave}>Save</Button>
-        <Button type="button" contextLabel={productLabel} onClick={() => onDelete(product.id)}>Delete</Button>
+        <Button type="button" contextLabel={productLabel} onClick={handleSave}>
+          Save
+        </Button>
+        <Button type="button" contextLabel={productLabel} onClick={() => onDelete(product.id)}>
+          Delete
+        </Button>
       </div>
     </fieldset>
   )
-}
+})
 
-export default function Inventory(){
+export default function Inventory() {
   const user = useAuth()
-  const [products,setProducts]=useState<Product[]>([])
-  const [newItem, setNewItem] = useState<{name:string;price:string;stock:string}>({name:'',price:'',stock:''})
+  const [products, setProducts] = useState<Product[]>([])
 
   const load = useCallback(() => {
     api.get('/inventory').then(r => setProducts(r.data))
@@ -275,33 +227,6 @@ export default function Inventory(){
     },
     [load]
   )
-  const save = async (p: Product) => {
-    try{
-      await api.put(`/inventory/${p.id}`, p)
-      toast({title:'Saved', description:p.name})
-      load()
-    } catch{
-      toast({title:'Error', description:'Failed to save', variant:'destructive'})
-    }
-  }
-
-  const create = async () => {
-    if(!newItem.name.trim()){ toast({title:'Name required', variant:'destructive'}); return }
-    const parsedPrice = newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
-    const parsedStock = newItem.stock.trim() === '' ? 0 : parseInt(newItem.stock, 10)
-    try{
-      await api.post('/inventory', {
-        name: newItem.name,
-        price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
-        stock: Number.isNaN(parsedStock) ? 0 : parsedStock,
-      })
-      toast({title:'Product created', description:newItem.name})
-      setNewItem({name:'',price:'',stock:''})
-      load()
-    } catch(e:any){
-      toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create', variant:'destructive'})
-    }
-  }
 
   if (!user) return null
 
@@ -311,48 +236,12 @@ export default function Inventory(){
 
       {/* Create New Product */}
       <CreateProductForm onCreated={load} />
-      <section className="border rounded p-4 space-y-3">
-        <h2 className="font-semibold text-lg">Create New Product</h2>
-        <div className="grid gap-3 max-w-lg">
-          <Input
-            label="Name"
-            placeholder="e.g. Flat White"
-            value={newItem.name}
-            onChange={e=>setNewItem({...newItem, name:(e.target as HTMLInputElement).value})}
-          />
-          <Input
-            label="Price"
-            type="number"
-            step="0.01"
-            min={0}
-            placeholder="e.g. 4.50"
-            value={newItem.price}
-            onChange={e=>setNewItem({...newItem, price:(e.target as HTMLInputElement).value})}
-          />
-          <Input
-            label="Stock"
-            type="number"
-            min={0}
-            placeholder="e.g. 50"
-            value={newItem.stock}
-            onChange={e=>setNewItem({...newItem, stock:(e.target as HTMLInputElement).value})}
-          />
-          <Button onClick={create}>Add Product</Button>
-        </div>
-      </section>
 
       {/* Existing Products */}
       <section className="space-y-3">
         <h2 className="font-semibold text-lg">Products</h2>
         {products.map(p => (
           <ProductRow key={p.id} product={p} onSave={save} onDelete={del} />
-        {products.map(p=>(
-          <ProductInventoryCard
-            key={p.id}
-            product={p}
-            onSave={save}
-            onDelete={del}
-          />
         ))}
       </section>
     </div>

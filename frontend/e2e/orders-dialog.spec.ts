@@ -106,6 +106,27 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
     }
   )
 
+  await page.route(
+    (url) => url.origin === 'http://localhost:8000' && /^\/orders\/\d+$/.test(url.pathname),
+    async (route) => {
+      const orderId = Number(route.request().url().split('/').pop())
+      const found = currentOrders.find((o) => o.id === orderId)
+      if (!found) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Order not found' }),
+        })
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(found),
+      })
+    }
+  )
+
   await page.route('http://localhost:8000/orders/*/cancel', async (route) => {
     const match = route.request().url().match(/\/orders\/(\d+)\/cancel$/)
     const orderId = match ? Number(match[1]) : -1

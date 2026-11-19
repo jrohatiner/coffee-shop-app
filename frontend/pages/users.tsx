@@ -27,18 +27,19 @@ export const CreateUserForm = memo(function CreateUserForm({
   }
 
   return (
-    <div className="border rounded p-4 space-y-2">
+    <div className="border rounded p-4 space-y-3">
       <h2 className="font-semibold">Create</h2>
       <Input
-        placeholder="Username"
+        label="Username"
         value={form.username}
         onChange={e =>
           setForm(prev => ({ ...prev, username: (e.target as HTMLInputElement).value }))
         }
       />
       <Input
-        placeholder="Password"
+        label="Password"
         type="password"
+        autoComplete="new-password"
         value={form.password}
         onChange={e =>
           setForm(prev => ({ ...prev, password: (e.target as HTMLInputElement).value }))
@@ -116,28 +117,6 @@ export default function Users() {
         <h2 id="existing-users-heading" className="font-semibold">
           Existing
         </h2>
-      <div className="border rounded p-4 space-y-3">
-        <h2 className="font-semibold">Create</h2>
-        <Input
-          label="Username"
-          value={form.username}
-          onChange={e=>setForm({...form, username:(e.target as HTMLInputElement).value})}
-        />
-        <Input
-          label="Password"
-          type="password"
-          autoComplete="new-password"
-          value={form.password}
-          onChange={e=>setForm({...form, password:(e.target as HTMLInputElement).value})}
-        />
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={form.is_manager} onChange={e=>setForm({...form, is_manager:(e.target as HTMLInputElement).checked})}/>
-          <span>Manager</span>
-        </label>
-        <Button onClick={create}>Create User</Button>
-      </div>
-      <div className="border rounded p-4 space-y-2">
-        <h2 id="existing-users-heading" className="font-semibold">Existing</h2>
         <ul aria-labelledby="existing-users-heading" className="space-y-2">
           {users.map(u => (
             <UserRow key={u.id} user={u} onDelete={del} />

@@ -1,7 +1,6 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
@@ -28,9 +27,8 @@ import {
 } from '../lib/orderState'
 
 export type Product = { id: number; name: string; price: number; stock: number }
-export type Order = { id: number; status: string; created_at: string; items: any[] }
+export type Order = OrderSummary & { items?: any[] }
 type OrderStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled'
-type Product = { id:number; name:string; price:number; stock:number }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
@@ -45,26 +43,36 @@ export const ProductPickerRow = memo(function ProductPickerRow({
   quantity: number
   onChangeQty: (pid: number, qty: number) => void
 }) {
+  const baseId = useId()
+  const headingId = `${baseId}-heading`
+  const qtyLabelId = `${baseId}-qty-label`
+  const qtyInputId = `${baseId}-qty`
+
   return (
     <div className="flex items-center justify-between border rounded p-2">
       <div className="flex flex-col">
-        <span className="font-medium">{product.name}</span>
+        <span id={headingId} className="font-medium">
+          {product.name}
+        </span>
         <span className="text-sm text-gray-600">
           ${product.price.toFixed(2)} · stock {product.stock}
         </span>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-sm">Qty</span>
-        <Input
-          type="number"
-          min={0}
-          value={quantity}
-          onChange={e =>
-            onChangeQty(product.id, parseInt((e.target as HTMLInputElement).value || '0', 10))
-          }
-          className="w-20"
-        />
-      </div>
+      <Input
+        id={qtyInputId}
+        label="Qty"
+        labelId={qtyLabelId}
+        wrapperClassName="flex items-center gap-2"
+        labelClassName="inline text-sm font-normal"
+        aria-labelledby={`${headingId} ${qtyLabelId}`}
+        type="number"
+        min={0}
+        value={quantity}
+        onChange={e =>
+          onChangeQty(product.id, parseInt((e.target as HTMLInputElement).value || '0', 10))
+        }
+        className="w-20"
+      />
     </div>
   )
 })
@@ -150,8 +158,9 @@ export const OrderCreator = memo(function OrderCreator({
         </div>
 
         <div className="space-y-3">
-          <div className="font-medium">Order Status</div>
           <Select
+            label="Order Status"
+            labelClassName="text-base font-medium text-gray-900"
             value={status}
             onChange={e => setStatus(e.target.value as OrderStatus)}
           >
@@ -193,9 +202,9 @@ export const OrderRow = memo(function OrderRow({
   onSelect,
   onCancel,
 }: {
-  order: Order
+  order: OrderSummary
   formattedCreatedAt?: string
-  onSelect: (order: Order) => void
+  onSelect: (order: OrderSummary) => void
   onCancel: (id: number) => void
 }) {
   const contextLabel = `order #${order.id}`
@@ -224,8 +233,8 @@ export const OrdersTable = memo(function OrdersTable({
   onSelect,
   onCancel,
 }: {
-  orders: Order[]
-  onSelect: (order: Order) => void
+  orders: OrderSummary[]
+  onSelect: (order: OrderSummary) => void
   onCancel: (id: number) => void
 }) {
   const orderRows = useMemo(
@@ -284,55 +293,43 @@ const OrdersFilters = memo(function OrdersFilters({
 }) {
   return (
     <div className="flex flex-wrap items-end gap-4">
-      <div className="flex flex-col gap-1">
-        <label htmlFor="orders-status-filter" className="text-sm font-medium">
-          Status Filter
-        </label>
-        <Select
-          id="orders-status-filter"
-          aria-label="Filter by status"
-          value={statusFilter}
-          onChange={e => onStatusFilterChange(e.target.value)}
-        >
-          <option value="">All statuses</option>
-          <option value="pending">pending</option>
-          <option value="in_progress">in_progress</option>
-          <option value="completed">completed</option>
-          <option value="cancelled">cancelled</option>
-        </Select>
-      </div>
+      <Select
+        id="orders-status-filter"
+        label="Status Filter"
+        wrapperClassName="flex flex-col gap-1"
+        value={statusFilter}
+        onChange={e => onStatusFilterChange(e.target.value)}
+      >
+        <option value="">All statuses</option>
+        <option value="pending">pending</option>
+        <option value="in_progress">in_progress</option>
+        <option value="completed">completed</option>
+        <option value="cancelled">cancelled</option>
+      </Select>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="orders-date-filter" className="text-sm font-medium">
-          Date Filter
-        </label>
-        <Input
-          id="orders-date-filter"
-          aria-label="Filter by date"
-          type="date"
-          className="w-44"
-          value={dateFilter}
-          onChange={e => onDateFilterChange((e.target as HTMLInputElement).value)}
-        />
-      </div>
+      <Input
+        id="orders-date-filter"
+        label="Date Filter"
+        wrapperClassName="flex flex-col gap-1"
+        type="date"
+        className="w-44"
+        value={dateFilter}
+        onChange={e => onDateFilterChange((e.target as HTMLInputElement).value)}
+      />
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="orders-page-size" className="text-sm font-medium">
-          Page Size
-        </label>
-        <Select
-          id="orders-page-size"
-          aria-label="Orders per page"
-          value={pageSize}
-          onChange={e => onPageSizeChange(Number(e.target.value))}
-        >
-          {PAGE_SIZE_OPTIONS.map(size => (
-            <option key={size} value={size}>
-              {size} per page
-            </option>
-          ))}
-        </Select>
-      </div>
+      <Select
+        id="orders-page-size"
+        label="Page Size"
+        wrapperClassName="flex flex-col gap-1"
+        value={pageSize}
+        onChange={e => onPageSizeChange(Number(e.target.value))}
+      >
+        {PAGE_SIZE_OPTIONS.map(size => (
+          <option key={size} value={size}>
+            {size} per page
+          </option>
+        ))}
+      </Select>
 
       {(statusFilter || dateFilter) && <Button onClick={onClearFilters}>Clear Filters</Button>}
     </div>
@@ -380,48 +377,6 @@ const OrdersPagination = memo(function OrdersPagination({
 export default function Orders() {
   const user = useAuth()
   const username = user?.sub ?? null
-  const [orders, setOrders] = useState<Order[]>([])
-  const [selected, setSelected] = useState<Order | null>(null)
-function ProductOrderRow({
-  product,
-  qty,
-  onQtyChange,
-}: {
-  product: Product
-  qty: number
-  onQtyChange: (qty: number) => void
-}) {
-  const baseId = useId()
-  const headingId = `${baseId}-heading`
-  const qtyLabelId = `${baseId}-qty-label`
-  const qtyInputId = `${baseId}-qty`
-
-  return (
-    <div className="flex items-center justify-between border rounded p-2">
-      <div className="flex flex-col">
-        <span id={headingId} className="font-medium">{product.name}</span>
-        <span className="text-sm text-gray-600">${product.price.toFixed(2)} · stock {product.stock}</span>
-      </div>
-      <Input
-        id={qtyInputId}
-        label="Qty"
-        labelId={qtyLabelId}
-        wrapperClassName="flex items-center gap-2"
-        labelClassName="inline text-sm font-normal"
-        aria-labelledby={`${headingId} ${qtyLabelId}`}
-        type="number"
-        min={0}
-        value={qty}
-        onChange={e => onQtyChange(parseInt((e.target as HTMLInputElement).value || '0', 10))}
-        className="w-20"
-      />
-    </div>
-  )
-}
-
-export default function Orders(){
-  const user = useAuth()
-  const username = user?.sub ?? null
   const [orders, setOrders] = useState<OrderSummary[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -451,16 +406,16 @@ export default function Orders(){
       (!view.statusFilter || summary.status === view.statusFilter) &&
       (!view.dateFilter || summary.created_at.slice(0, 10) === view.dateFilter) &&
       ordersRef.current.length >= view.pageSize &&
-      !ordersRef.current.some((o) => o.id === summary.id)
+      !ordersRef.current.some(o => o.id === summary.id)
     ) {
       setHasMore(true)
     }
-    setOrders((prev) => reconcileCreatedOrder(prev, payload, view))
+    setOrders(prev => reconcileCreatedOrder(prev, payload, view))
   }, [])
 
   const applyCancelledOrder = useCallback((payload: unknown) => {
     const view = viewStateRef.current
-    setOrders((prev) => reconcileCancelledOrder(prev, payload, view))
+    setOrders(prev => reconcileCancelledOrder(prev, payload, view))
   }, [])
 
   const fetchOrders = useCallback(() => {
@@ -598,7 +553,8 @@ export default function Orders(){
       pendingLocalStockRef.current.push(stockEchoToken)
 
       try {
-        await api.post('/orders', { status, items })
+        const res = await api.post('/orders', { status, items })
+        applyCreatedOrderRef.current(res.data)
 
         const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
         if (createIdx !== -1) {
@@ -609,45 +565,6 @@ export default function Orders(){
           ;(expiry as any)?.unref?.()
           pendingLocalCreatesRef.current[createIdx] = expiry
         }
-  if(!user) return null
-
-  const selected = selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null
-
-  const setQty = (pid:number, qty:number) => {
-    setCart(prev => {
-      const next = { ...prev }
-      if(qty <= 0) delete next[pid]; else next[pid] = qty
-      return next
-    })
-  }
-
-  const createOrder = async () => {
-    const items = Object.entries(cart).map(([product_id, quantity])=>({ product_id: Number(product_id), quantity: Number(quantity) }))
-    if(items.length === 0){ toast({title:'Add at least one item', variant:'destructive'}); return }
-
-    const createEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
-    clearTimeout(createEchoToken)
-    pendingLocalCreatesRef.current.push(createEchoToken)
-
-    const stockEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
-    clearTimeout(stockEchoToken)
-    pendingLocalStockRef.current.push(stockEchoToken)
-
-    try{
-      const res = await api.post('/orders', { status, items })
-      applyCreatedOrder(res.data)
-      toast({title:'Order created'})
-      setCart({})
-      setStatus('pending')
-
-      const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
-      if (createIdx !== -1) {
-        const expiry = setTimeout(() => {
-          const idx = pendingLocalCreatesRef.current.indexOf(expiry)
-          if (idx !== -1) pendingLocalCreatesRef.current.splice(idx, 1)
-        }, LOCAL_SOCKET_ECHO_TTL_MS)
-        pendingLocalCreatesRef.current[createIdx] = expiry
-      }
 
         const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
         if (stockIdx !== -1) {
@@ -669,19 +586,7 @@ export default function Orders(){
     []
   )
 
-  const handleOrderCreated = useCallback(
-    () => Promise.all([fetchOrdersRef.current(), loadProductsRef.current()]),
-    []
-  )
-      await loadProducts()
-    }catch(e:any){
-      const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
-      if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
-      const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
-      if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
-      toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create order', variant:'destructive'})
-    }
-  }
+  const handleOrderCreated = useCallback(() => loadProductsRef.current(), [])
 
   const cancelOrder = useCallback(async (id: number) => {
     pendingLocalCancelsRef.current.set(id, null)
@@ -690,12 +595,13 @@ export default function Orders(){
     pendingLocalStockRef.current.push(stockEchoToken)
 
     try {
-      await api.post(`/orders/${id}/cancel`)
-      toast({ title: 'Order cancelled' })
-    try{
       const res = await api.post(`/orders/${id}/cancel`)
-      applyCancelledOrder(res.data)
-      toast({title:'Order cancelled'})
+      const cancelPayload =
+        res?.data && typeof res.data === 'object' && ('id' in res.data || 'order_id' in res.data)
+          ? res.data
+          : { order_id: id, status: 'cancelled' }
+      applyCancelledOrderRef.current(cancelPayload)
+      toast({ title: 'Order cancelled' })
 
       if (pendingLocalCancelsRef.current.has(id)) {
         const expiry = setTimeout(() => {
@@ -715,10 +621,8 @@ export default function Orders(){
         pendingLocalStockRef.current[stockIdx] = expiry
       }
 
-      await Promise.all([fetchOrdersRef.current(), loadProductsRef.current()])
+      await loadProductsRef.current()
     } catch (e: any) {
-      await loadProducts()
-    }catch(e:any){
       const existing = pendingLocalCancelsRef.current.get(id)
       if (existing) clearTimeout(existing)
       pendingLocalCancelsRef.current.delete(id)
@@ -732,12 +636,12 @@ export default function Orders(){
     }
   }, [])
 
-  const handleSelectOrder = useCallback((order: Order) => {
-    setSelected(order)
+  const handleSelectOrder = useCallback((order: OrderSummary) => {
+    setSelectedId(order.id)
   }, [])
 
   const handleCloseModal = useCallback(() => {
-    setSelected(null)
+    setSelectedId(null)
   }, [])
 
   const handleStatusFilterChange = useCallback((value: string) => {
@@ -768,6 +672,11 @@ export default function Orders(){
   const handleNextPage = useCallback(() => {
     setPage(p => p + 1)
   }, [])
+
+  const selected = useMemo(
+    () => (selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null),
+    [orders, selectedId]
+  )
 
   if (!user) return null
 
@@ -806,169 +715,6 @@ export default function Orders(){
       </section>
 
       {selected && <OrderDetailModal order={selected} onClose={handleCloseModal} />}
-      <section className="border rounded p-4 space-y-3 max-w-3xl">
-        <h2 className="font-semibold text-lg">Create New Order</h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <div className="font-medium">Pick Products</div>
-            <div className="space-y-2 max-h-80 overflow-auto pr-2">
-              {products.map(p=>(
-                <ProductOrderRow
-                  key={p.id}
-                  product={p}
-                  qty={cart[p.id] ?? 0}
-                  onQtyChange={qty => setQty(p.id, qty)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Select
-              label="Order Status"
-              labelClassName="text-base font-medium text-gray-900"
-              value={status}
-              onChange={e=>setStatus(e.target.value as any)}
-            >
-              <option value="pending">pending</option>
-              <option value="in_progress">in_progress</option>
-              <option value="completed">completed</option>
-              <option value="cancelled">cancelled</option>
-            </Select>
-
-            <div className="border rounded p-3">
-              <div className="font-medium mb-2">Cart</div>
-              <ul className="space-y-1">
-                {Object.entries(cart).map(([pid, qty])=>{
-                  const p = productById.get(Number(pid))
-                  if(!p) return null
-                  return <li key={pid} className="flex justify-between"><span>{p.name}</span><span>× {qty}</span></li>
-                })}
-                {Object.keys(cart).length===0 && <li className="text-gray-500 text-sm">No items added</li>}
-              </ul>
-            </div>
-
-            <Button onClick={createOrder}>Create Order</Button>
-          </div>
-        </div>
-      </section>
-
-      {/* Orders table & pagination */}
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <Select
-            id="orders-status-filter"
-            label="Status Filter"
-            wrapperClassName="flex flex-col gap-1"
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value)
-              setPage(1)
-            }}
-          >
-            <option value="">All statuses</option>
-            <option value="pending">pending</option>
-            <option value="in_progress">in_progress</option>
-            <option value="completed">completed</option>
-            <option value="cancelled">cancelled</option>
-          </Select>
-
-          <Input
-            id="orders-date-filter"
-            label="Date Filter"
-            wrapperClassName="flex flex-col gap-1"
-            type="date"
-            className="w-44"
-            value={dateFilter}
-            onChange={(e) => {
-              setDateFilter((e.target as HTMLInputElement).value)
-              setPage(1)
-            }}
-          />
-
-          <Select
-            id="orders-page-size"
-            label="Page Size"
-            wrapperClassName="flex flex-col gap-1"
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value))
-              setPage(1)
-            }}
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>{size} per page</option>
-            ))}
-          </Select>
-
-          {(statusFilter || dateFilter) && (
-            <Button
-              onClick={() => {
-                setStatusFilter('')
-                setDateFilter('')
-                setPage(1)
-              }}
-            >
-              Clear Filters
-            </Button>
-          )}
-        </div>
-
-        <Table caption="Orders" hideCaption>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {orderRows.map(({ order: o, formattedCreatedAt })=>(
-              <TableRow key={o.id}>
-                <TableRowHeader>{o.id}</TableRowHeader>
-                <TableCell>{o.status}</TableCell>
-                <TableCell>{formattedCreatedAt}</TableCell>
-                <TableCell className="flex gap-2">
-                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelectedId(o.id)}>View</Button>
-                  {(o.status !== 'cancelled' && o.status !== 'completed') && (
-                    <Button contextLabel={`order #${o.id}`} onClick={()=>cancelOrder(o.id)}>Cancel</Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {orders.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="p-4 text-center text-gray-500">No orders found.</TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-
-        <div className="flex items-center justify-between pt-2">
-          <div className="text-sm text-gray-600">
-            Page {page} · Showing {orders.length} {orders.length === 1 ? 'order' : 'orders'}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              disabled={page <= 1}
-              className="disabled:opacity-50 disabled:pointer-events-none"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            <Button
-              disabled={!hasMore}
-              className="disabled:opacity-50 disabled:pointer-events-none"
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {selected && <OrderDetailModal order={selected} onClose={()=>setSelectedId(null)} />}
     </div>
   )
 }
