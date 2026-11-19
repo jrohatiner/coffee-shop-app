@@ -1,6 +1,6 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
@@ -17,20 +17,63 @@ import {
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
 import type { Socket } from 'socket.io-client'
+import {
+  OrderSummary,
+  reconcileCancelledOrder,
+  reconcileCreatedOrder,
+  toOrderSummary,
+} from '../lib/orderState'
 
 type Product = { id:number; name:string; price:number; stock:number }
-type Order = { id:number; status:string; created_at:string; items:any[] }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
 const LOCAL_SOCKET_ECHO_TTL_MS = 1500
 
+function ProductOrderRow({
+  product,
+  qty,
+  onQtyChange,
+}: {
+  product: Product
+  qty: number
+  onQtyChange: (qty: number) => void
+}) {
+  const baseId = useId()
+  const headingId = `${baseId}-heading`
+  const qtyLabelId = `${baseId}-qty-label`
+  const qtyInputId = `${baseId}-qty`
+
+  return (
+    <div className="flex items-center justify-between border rounded p-2">
+      <div className="flex flex-col">
+        <span id={headingId} className="font-medium">{product.name}</span>
+        <span className="text-sm text-gray-600">${product.price.toFixed(2)} · stock {product.stock}</span>
+      </div>
+      <Input
+        id={qtyInputId}
+        label="Qty"
+        labelId={qtyLabelId}
+        wrapperClassName="flex items-center gap-2"
+        labelClassName="inline text-sm font-normal"
+        aria-labelledby={`${headingId} ${qtyLabelId}`}
+        type="number"
+        min={0}
+        value={qty}
+        onChange={e => onQtyChange(parseInt((e.target as HTMLInputElement).value || '0', 10))}
+        className="w-20"
+      />
+    </div>
+  )
+}
+
 export default function Orders(){
   const user = useAuth()
   const username = user?.sub ?? null
-  const [orders, setOrders] = useState<Order[]>([])
-  const [selected, setSelected] = useState<Order|null>(null)
+  const [orders, setOrders] = useState<OrderSummary[]>([])
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<Record<number, number>>({}) // productId -> qty
   const [status, setStatus] = useState<'pending'|'in_progress'|'completed'|'cancelled'>('pending')
@@ -55,6 +98,32 @@ export default function Orders(){
   const pendingLocalCancelsRef = useRef<Map<number, ReturnType<typeof setTimeout> | null>>(new Map())
   const pendingLocalStockRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
+  const ordersRef = useRef(orders)
+  ordersRef.current = orders
+  const viewStateRef = useRef({ page, pageSize, statusFilter, dateFilter, hasMore })
+  viewStateRef.current = { page, pageSize, statusFilter, dateFilter, hasMore }
+
+  const applyCreatedOrder = useCallback((payload: unknown) => {
+    const view = viewStateRef.current
+    const summary = toOrderSummary(payload)
+    if (
+      summary &&
+      view.page === 1 &&
+      (!view.statusFilter || summary.status === view.statusFilter) &&
+      (!view.dateFilter || summary.created_at.slice(0, 10) === view.dateFilter) &&
+      ordersRef.current.length >= view.pageSize &&
+      !ordersRef.current.some((o) => o.id === summary.id)
+    ) {
+      setHasMore(true)
+    }
+    setOrders((prev) => reconcileCreatedOrder(prev, payload, view))
+  }, [])
+
+  const applyCancelledOrder = useCallback((payload: unknown) => {
+    const view = viewStateRef.current
+    setOrders((prev) => reconcileCancelledOrder(prev, payload, view))
+  }, [])
+
   const fetchOrders = useCallback(() => {
     const seq = ++requestSeqRef.current
     const params: Record<string, string | number> = {
@@ -68,7 +137,7 @@ export default function Orders(){
       .get('/orders', { params })
       .then((r) => {
         if (seq !== requestSeqRef.current) return
-        const data: Order[] = r.data
+        const data: OrderSummary[] = r.data
         setOrders(data)
         const headerHasMore = r.headers?.['x-has-more']
         const more = headerHasMore !== undefined
@@ -87,10 +156,12 @@ export default function Orders(){
     []
   )
 
-  const fetchOrdersRef = useRef(fetchOrders)
-  fetchOrdersRef.current = fetchOrders
   const loadProductsRef = useRef(loadProducts)
   loadProductsRef.current = loadProducts
+  const applyCreatedOrderRef = useRef(applyCreatedOrder)
+  applyCreatedOrderRef.current = applyCreatedOrder
+  const applyCancelledOrderRef = useRef(applyCancelledOrder)
+  applyCancelledOrderRef.current = applyCancelledOrder
 
   useEffect(() => {
     if (username) {
@@ -116,17 +187,25 @@ export default function Orders(){
   }, [])
 
   const handleSocketReady = useCallback((s: Socket) => {
-    s.on('new_order', () => {
+    s.on('new_order', (payload: unknown) => {
+      applyCreatedOrderRef.current(payload)
       if (pendingLocalCreatesRef.current.length > 0) {
         const timer = pendingLocalCreatesRef.current.shift()
         if (timer) clearTimeout(timer)
         return
       }
       toast({ title: 'New Order' })
-      fetchOrdersRef.current()
     })
-    s.on('order_cancelled', (payload?: { order_id?: number }) => {
-      const cancelledId = payload?.order_id
+    s.on('order_cancelled', (payload: unknown) => {
+      applyCancelledOrderRef.current(payload)
+      const record =
+        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+      const cancelledId =
+        typeof record?.order_id === 'number'
+          ? record.order_id
+          : typeof record?.id === 'number'
+            ? record.id
+            : undefined
       if (cancelledId != null && pendingLocalCancelsRef.current.has(cancelledId)) {
         const timer = pendingLocalCancelsRef.current.get(cancelledId)
         if (timer) clearTimeout(timer)
@@ -143,7 +222,6 @@ export default function Orders(){
         }
       }
       toast({ title: 'Order cancelled' })
-      fetchOrdersRef.current()
     })
     s.on('stock_update', () => {
       if (pendingLocalStockRef.current.length > 0) {
@@ -158,6 +236,8 @@ export default function Orders(){
   useSocket(handleSocketReady, Boolean(username))
 
   if(!user) return null
+
+  const selected = selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null
 
   const setQty = (pid:number, qty:number) => {
     setCart(prev => {
@@ -180,7 +260,8 @@ export default function Orders(){
     pendingLocalStockRef.current.push(stockEchoToken)
 
     try{
-      await api.post('/orders', { status, items })
+      const res = await api.post('/orders', { status, items })
+      applyCreatedOrder(res.data)
       toast({title:'Order created'})
       setCart({})
       setStatus('pending')
@@ -203,7 +284,7 @@ export default function Orders(){
         pendingLocalStockRef.current[stockIdx] = expiry
       }
 
-      await Promise.all([fetchOrders(), loadProducts()])
+      await loadProducts()
     }catch(e:any){
       const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
       if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
@@ -220,7 +301,8 @@ export default function Orders(){
     pendingLocalStockRef.current.push(stockEchoToken)
 
     try{
-      await api.post(`/orders/${id}/cancel`)
+      const res = await api.post(`/orders/${id}/cancel`)
+      applyCancelledOrder(res.data)
       toast({title:'Order cancelled'})
 
       if (pendingLocalCancelsRef.current.has(id)) {
@@ -239,7 +321,7 @@ export default function Orders(){
         pendingLocalStockRef.current[stockIdx] = expiry
       }
 
-      await Promise.all([fetchOrders(), loadProducts()])
+      await loadProducts()
     }catch(e:any){
       const existing = pendingLocalCancelsRef.current.get(id)
       if (existing) clearTimeout(existing)
@@ -262,28 +344,28 @@ export default function Orders(){
             <div className="font-medium">Pick Products</div>
             <div className="space-y-2 max-h-80 overflow-auto pr-2">
               {products.map(p=>(
-                <div key={p.id} className="flex items-center justify-between border rounded p-2">
-                  <div className="flex flex-col">
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-sm text-gray-600">${p.price.toFixed(2)} · stock {p.stock}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">Qty</span>
-                    <Input type="number" min={0} value={cart[p.id] ?? 0} onChange={e=>setQty(p.id, parseInt((e.target as HTMLInputElement).value || '0'))} className="w-20"/>
-                  </div>
-                </div>
+                <ProductOrderRow
+                  key={p.id}
+                  product={p}
+                  qty={cart[p.id] ?? 0}
+                  onQtyChange={qty => setQty(p.id, qty)}
+                />
               ))}
             </div>
           </div>
 
           <div className="space-y-3">
-            <div className="font-medium">Order Status</div>
-            <select className="border rounded px-3 py-2" value={status} onChange={e=>setStatus(e.target.value as any)}>
+            <Select
+              label="Order Status"
+              labelClassName="text-base font-medium text-gray-900"
+              value={status}
+              onChange={e=>setStatus(e.target.value as any)}
+            >
               <option value="pending">pending</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
               <option value="cancelled">cancelled</option>
-            </select>
+            </Select>
 
             <div className="border rounded p-3">
               <div className="font-medium mb-2">Cart</div>
@@ -305,58 +387,50 @@ export default function Orders(){
       {/* Orders table & pagination */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-end gap-4">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="orders-status-filter" className="text-sm font-medium">Status Filter</label>
-            <select
-              id="orders-status-filter"
-              aria-label="Filter by status"
-              className="border rounded px-3 py-2"
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value)
-                setPage(1)
-              }}
-            >
-              <option value="">All statuses</option>
-              <option value="pending">pending</option>
-              <option value="in_progress">in_progress</option>
-              <option value="completed">completed</option>
-              <option value="cancelled">cancelled</option>
-            </select>
-          </div>
+          <Select
+            id="orders-status-filter"
+            label="Status Filter"
+            wrapperClassName="flex flex-col gap-1"
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value)
+              setPage(1)
+            }}
+          >
+            <option value="">All statuses</option>
+            <option value="pending">pending</option>
+            <option value="in_progress">in_progress</option>
+            <option value="completed">completed</option>
+            <option value="cancelled">cancelled</option>
+          </Select>
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="orders-date-filter" className="text-sm font-medium">Date Filter</label>
-            <Input
-              id="orders-date-filter"
-              aria-label="Filter by date"
-              type="date"
-              className="w-44"
-              value={dateFilter}
-              onChange={(e) => {
-                setDateFilter((e.target as HTMLInputElement).value)
-                setPage(1)
-              }}
-            />
-          </div>
+          <Input
+            id="orders-date-filter"
+            label="Date Filter"
+            wrapperClassName="flex flex-col gap-1"
+            type="date"
+            className="w-44"
+            value={dateFilter}
+            onChange={(e) => {
+              setDateFilter((e.target as HTMLInputElement).value)
+              setPage(1)
+            }}
+          />
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="orders-page-size" className="text-sm font-medium">Page Size</label>
-            <select
-              id="orders-page-size"
-              aria-label="Orders per page"
-              className="border rounded px-3 py-2"
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value))
-                setPage(1)
-              }}
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size} per page</option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="orders-page-size"
+            label="Page Size"
+            wrapperClassName="flex flex-col gap-1"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value))
+              setPage(1)
+            }}
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>{size} per page</option>
+            ))}
+          </Select>
 
           {(statusFilter || dateFilter) && (
             <Button
@@ -387,7 +461,7 @@ export default function Orders(){
                 <TableCell>{o.status}</TableCell>
                 <TableCell>{formattedCreatedAt}</TableCell>
                 <TableCell className="flex gap-2">
-                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelected(o)}>View</Button>
+                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelectedId(o.id)}>View</Button>
                   {(o.status !== 'cancelled' && o.status !== 'completed') && (
                     <Button contextLabel={`order #${o.id}`} onClick={()=>cancelOrder(o.id)}>Cancel</Button>
                   )}
@@ -425,7 +499,7 @@ export default function Orders(){
         </div>
       </section>
 
-      {selected && <OrderDetailModal order={selected} onClose={()=>setSelected(null)} />}
+      {selected && <OrderDetailModal order={selected} onClose={()=>setSelectedId(null)} />}
     </div>
   )
 }

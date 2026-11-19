@@ -3,6 +3,8 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -15,6 +17,15 @@ router = APIRouter()
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 ALLOWED_ORDER_STATUSES = {s.value for s in schemas.OrderStatus}
+
+
+def _serialize_order_summary(order) -> dict:
+    summary = schemas.OrderSummaryOut(
+        id=order.id,
+        status=order.status,
+        created_at=order.created_at,
+    )
+    return jsonable_encoder(summary)
 
 
 def _orders_with_details_query(db: Session):
@@ -192,9 +203,12 @@ async def create_order(
         order,
         request,
     )
+    order_out = _serialize_order(db_order)
+    order_summary = _serialize_order_summary(order_out)
+    db.commit()
 
-    # Notify listeners
-    await sio.emit("new_order")
+    # Notify listeners with lightweight summary data
+    await sio.emit("new_order", order_summary)
     await sio.emit("stock_update")
 
     return order_out
@@ -214,6 +228,54 @@ async def cancel_order(
     if did_cancel:
         await sio.emit("stock_update")
         await sio.emit("order_cancelled", {"order_id": order_out.id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+
+    if not (order.user_id == current_user.id or current_user.is_manager):
+        raise HTTPException(403, "Not authorized to cancel this order")
+
+    if order.status in ("completed", "shipped"):
+        raise HTTPException(400, "Cannot cancel order in current status")
+
+    product_ids = sorted({it.product_id for it in order.items})
+    product_map: Dict[int, models.Product] = {}
+    if product_ids:
+        product_query = (
+            db.query(models.Product)
+            .filter(models.Product.id.in_(product_ids))
+            .order_by(models.Product.id)
+        )
+        if order.status != "cancelled":
+            product_query = product_query.with_for_update()
+        products = product_query.all()
+        product_map = {prod.id: prod for prod in products}
+
+    for it in order.items:
+        set_committed_value(it, "product", product_map.get(it.product_id))
+
+    if order.status == "cancelled":
+        return _serialize_order(order)
+
+    restock_quantities: Dict[int, int] = {}
+    for it in order.items:
+        restock_quantities[it.product_id] = (
+            restock_quantities.get(it.product_id, 0) + it.quantity
+        )
+
+    for product_id, total_quantity in restock_quantities.items():
+        prod = product_map.get(product_id)
+        if prod:
+            prod.stock += total_quantity
+
+    order.status = "cancelled"
+    db.flush()
+
+    order_out = _serialize_order(order)
+    cancelled_payload = {**_serialize_order_summary(order_out), "order_id": order_out.id}
+    db.commit()
+
+    await sio.emit("stock_update")
+    await sio.emit("order_cancelled", cancelled_payload)
 
     return order_out
 
@@ -254,8 +316,8 @@ def update_order(
     return _serialize_order(updated_order)
 
 
-@router.get("/", response_model=List[schemas.OrderOut])
-@router.get("", response_model=List[schemas.OrderOut], include_in_schema=False)
+@router.get("/", response_model=List[schemas.OrderSummaryOut])
+@router.get("", response_model=List[schemas.OrderSummaryOut], include_in_schema=False)
 def list_orders(
     response: Response,
     status: Optional[str] = None,
@@ -274,15 +336,15 @@ def list_orders(
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    q = _orders_with_details_query(db)
+    q = db.query(models.Order.id, models.Order.status, models.Order.created_at)
     if status:
         q = q.filter(models.Order.status == status)
-    if date_filter:
+    if date_filter is not None:
         start_dt = datetime.combine(date_filter, time.min)
-        end_dt = start_dt + timedelta(days=1)
+        next_day_dt = start_dt + timedelta(days=1)
         q = q.filter(
             models.Order.created_at >= start_dt,
-            models.Order.created_at < end_dt,
+            models.Order.created_at < next_day_dt,
         )
     rows = (
         q.order_by(models.Order.created_at.desc(), models.Order.id.desc())
@@ -292,4 +354,4 @@ def list_orders(
     )
     has_more = len(rows) > limit
     response.headers["X-Has-More"] = "true" if has_more else "false"
-    return [_serialize_order(row) for row in rows[:limit]]
+    return rows[:limit]

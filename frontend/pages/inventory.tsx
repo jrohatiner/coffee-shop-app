@@ -1,6 +1,6 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
@@ -9,10 +9,91 @@ import { useSocket } from '../hooks/useSocket'
 
 type Product = { id: number; name: string; price: number; stock: number }
 
+function ProductInventoryCard({
+  product,
+  onSave,
+  onDelete,
+}: {
+  product: Product
+  onSave: (p: Product) => void
+  onDelete: (id: number) => void
+}) {
+  const baseId = useId()
+  const legendId = `${baseId}-legend`
+  const nameLabelId = `${baseId}-name-label`
+  const priceLabelId = `${baseId}-price-label`
+  const stockLabelId = `${baseId}-stock-label`
+
+  const [draft, setDraft] = useState({
+    name: product.name,
+    price: String(product.price),
+    stock: String(product.stock),
+  })
+
+  useEffect(() => {
+    setDraft({
+      name: product.name,
+      price: String(product.price),
+      stock: String(product.stock),
+    })
+  }, [product.name, product.price, product.stock])
+
+  const handleSave = () => {
+    const parsedPrice = draft.price.trim() === '' ? 0 : parseFloat(draft.price)
+    const parsedStock = draft.stock.trim() === '' ? 0 : parseInt(draft.stock, 10)
+    onSave({
+      ...product,
+      name: draft.name,
+      price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
+      stock: Number.isNaN(parsedStock) ? 0 : parsedStock,
+    })
+  }
+
+  const productLabel = product.name.trim() || `Product #${product.id}`
+
+  return (
+    <fieldset className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
+      <legend id={legendId} className="px-1 font-medium">
+        {productLabel}
+      </legend>
+      <div className="grid gap-2">
+        <Input
+          label="Name"
+          labelId={nameLabelId}
+          aria-labelledby={`${legendId} ${nameLabelId}`}
+          value={draft.name}
+          onChange={e => setDraft({ ...draft, name: (e.target as HTMLInputElement).value })}
+        />
+        <Input
+          label="Price"
+          labelId={priceLabelId}
+          aria-labelledby={`${legendId} ${priceLabelId}`}
+          type="number"
+          step="0.01"
+          value={draft.price}
+          onChange={e => setDraft({ ...draft, price: (e.target as HTMLInputElement).value })}
+        />
+        <Input
+          label="Stock"
+          labelId={stockLabelId}
+          aria-labelledby={`${legendId} ${stockLabelId}`}
+          type="number"
+          value={draft.stock}
+          onChange={e => setDraft({ ...draft, stock: (e.target as HTMLInputElement).value })}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button type="button" contextLabel={productLabel} onClick={handleSave}>Save</Button>
+        <Button type="button" contextLabel={productLabel} onClick={() => onDelete(product.id)}>Delete</Button>
+      </div>
+    </fieldset>
+  )
+}
+
 export default function Inventory(){
   const user = useAuth()
   const [products,setProducts]=useState<Product[]>([])
-  const [newItem, setNewItem] = useState<{name:string;price:number;stock:number}>({name:'',price:0,stock:0})
+  const [newItem, setNewItem] = useState<{name:string;price:string;stock:string}>({name:'',price:'',stock:''})
 
   const load=()=>api.get('/inventory').then(r=>setProducts(r.data))
   useEffect(()=>{ if(user) load() },[user])
@@ -21,10 +102,6 @@ export default function Inventory(){
   }, Boolean(user))
 
   if(!user) return null
-
-  const updateProduct = (id: number, patch: Partial<Product>) => {
-    setProducts(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)))
-  }
 
   const save = async (p: Product) => {
     try{
@@ -38,10 +115,16 @@ export default function Inventory(){
 
   const create = async () => {
     if(!newItem.name.trim()){ toast({title:'Name required', variant:'destructive'}); return }
+    const parsedPrice = newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
+    const parsedStock = newItem.stock.trim() === '' ? 0 : parseInt(newItem.stock, 10)
     try{
-      await api.post('/inventory', newItem)
+      await api.post('/inventory', {
+        name: newItem.name,
+        price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
+        stock: Number.isNaN(parsedStock) ? 0 : parsedStock,
+      })
       toast({title:'Product created', description:newItem.name})
-      setNewItem({name:'',price:0,stock:0})
+      setNewItem({name:'',price:'',stock:''})
       load()
     } catch(e:any){
       toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create', variant:'destructive'})
@@ -66,9 +149,29 @@ export default function Inventory(){
       <section className="border rounded p-4 space-y-3">
         <h2 className="font-semibold text-lg">Create New Product</h2>
         <div className="grid gap-3 max-w-lg">
-          <Input placeholder="Name" value={newItem.name} onChange={e=>setNewItem({...newItem, name:(e.target as HTMLInputElement).value})} />
-          <Input type="number" placeholder="Price" value={newItem.price} onChange={e=>setNewItem({...newItem, price: parseFloat((e.target as HTMLInputElement).value || '0')})} />
-          <Input type="number" placeholder="Stock" value={newItem.stock} onChange={e=>setNewItem({...newItem, stock: parseInt((e.target as HTMLInputElement).value || '0')})} />
+          <Input
+            label="Name"
+            placeholder="e.g. Flat White"
+            value={newItem.name}
+            onChange={e=>setNewItem({...newItem, name:(e.target as HTMLInputElement).value})}
+          />
+          <Input
+            label="Price"
+            type="number"
+            step="0.01"
+            min={0}
+            placeholder="e.g. 4.50"
+            value={newItem.price}
+            onChange={e=>setNewItem({...newItem, price:(e.target as HTMLInputElement).value})}
+          />
+          <Input
+            label="Stock"
+            type="number"
+            min={0}
+            placeholder="e.g. 50"
+            value={newItem.stock}
+            onChange={e=>setNewItem({...newItem, stock:(e.target as HTMLInputElement).value})}
+          />
           <Button onClick={create}>Add Product</Button>
         </div>
       </section>
@@ -76,40 +179,14 @@ export default function Inventory(){
       {/* Existing Products */}
       <section className="space-y-3">
         <h2 className="font-semibold text-lg">Products</h2>
-        {products.map(p=>{
-          const productLabel = p.name.trim() || `Product #${p.id}`
-          return (
-            <fieldset key={p.id} className="min-w-0 border rounded p-4 space-y-2 max-w-lg">
-              <legend className="px-1 font-medium">{productLabel}</legend>
-              <div className="grid gap-2">
-                <Input
-                  value={p.name}
-                  onChange={e=>updateProduct(p.id, { name: (e.target as HTMLInputElement).value })}
-                />
-                <Input
-                  type="number"
-                  value={p.price}
-                  onChange={e=>{
-                    const nextPrice = parseFloat((e.target as HTMLInputElement).value || '0')
-                    updateProduct(p.id, { price: Number.isNaN(nextPrice) ? 0 : nextPrice })
-                  }}
-                />
-                <Input
-                  type="number"
-                  value={p.stock}
-                  onChange={e=>{
-                    const nextStock = parseInt((e.target as HTMLInputElement).value || '0', 10)
-                    updateProduct(p.id, { stock: Number.isNaN(nextStock) ? 0 : nextStock })
-                  }}
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button contextLabel={productLabel} onClick={()=>save(p)}>Save</Button>
-                <Button contextLabel={productLabel} onClick={()=>del(p.id)}>Delete</Button>
-              </div>
-            </fieldset>
-          )
-        })}
+        {products.map(p=>(
+          <ProductInventoryCard
+            key={p.id}
+            product={p}
+            onSave={save}
+            onDelete={del}
+          />
+        ))}
       </section>
     </div>
   )

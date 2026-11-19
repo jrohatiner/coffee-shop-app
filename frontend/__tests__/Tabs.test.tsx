@@ -110,10 +110,10 @@ describe('Tabs accessibility and keyboard navigation', () => {
     const [dailyTab, weeklyTab] = container.querySelectorAll('[role="tab"]')
 
     for (const cls of [
-      'bg-gray-900',
-      'text-white',
+      'border-2',
+      'bg-gray-100',
       'font-semibold',
-      'border-gray-900',
+      'forced-colors:border-[Highlight]',
     ]) {
       assert.ok(
         weeklyTab.className.split(/\s+/).includes(cls),
@@ -124,6 +124,8 @@ describe('Tabs accessibility and keyboard navigation', () => {
         `inactive tab omits ${cls}`
       )
     }
+    assert.ok(dailyTab.className.split(/\s+/).includes('border-control'))
+    assert.ok(weeklyTab.className.split(/\s+/).includes('border-control'))
 
     fireClick(dailyTab)
 
@@ -135,10 +137,10 @@ describe('Tabs accessibility and keyboard navigation', () => {
     assert.equal(weeklyTab.tabIndex, -1)
 
     for (const cls of [
-      'bg-gray-900',
-      'text-white',
+      'border-2',
+      'bg-gray-100',
       'font-semibold',
-      'border-gray-900',
+      'forced-colors:border-[Highlight]',
     ]) {
       assert.ok(dailyTab.className.split(/\s+/).includes(cls))
       assert.ok(!weeklyTab.className.split(/\s+/).includes(cls))

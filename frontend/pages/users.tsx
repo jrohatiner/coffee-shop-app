@@ -24,10 +24,20 @@ export default function Users(){
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">User Management</h1>
-      <div className="border rounded p-4 space-y-2">
+      <div className="border rounded p-4 space-y-3">
         <h2 className="font-semibold">Create</h2>
-        <Input placeholder="Username" value={form.username} onChange={e=>setForm({...form, username:(e.target as HTMLInputElement).value})}/>
-        <Input placeholder="Password" type="password" value={form.password} onChange={e=>setForm({...form, password:(e.target as HTMLInputElement).value})}/>
+        <Input
+          label="Username"
+          value={form.username}
+          onChange={e=>setForm({...form, username:(e.target as HTMLInputElement).value})}
+        />
+        <Input
+          label="Password"
+          type="password"
+          autoComplete="new-password"
+          value={form.password}
+          onChange={e=>setForm({...form, password:(e.target as HTMLInputElement).value})}
+        />
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={form.is_manager} onChange={e=>setForm({...form, is_manager:(e.target as HTMLInputElement).checked})}/>
           <span>Manager</span>

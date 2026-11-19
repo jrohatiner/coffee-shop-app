@@ -1,8 +1,9 @@
 import React from 'react'
+import { twMerge } from 'tailwind-merge'
 
 type TabsContextValue = {
   value: string
-  onValueChange: (value: string) => void
+  onValueChange?: (value: string) => void
   baseId: string
 }
 
@@ -30,7 +31,7 @@ export type TabsProps = Omit<
   'onChange'
 > & {
   value: string
-  onValueChange: (value: string) => void
+  onValueChange?: (value: string) => void
   children: React.ReactNode
 }
 
@@ -65,7 +66,7 @@ export type TabsListProps = React.HTMLAttributes<HTMLDivElement> & {
 
 export const TabsList = ({
   children,
-  className = '',
+  className,
   onKeyDown,
   ...props
 }: TabsListProps) => {
@@ -132,14 +133,17 @@ export const TabsList = ({
     nextTab.focus()
     const nextValue = nextTab.getAttribute('data-value')
     if (nextValue !== null) {
-      onValueChange(nextValue)
+      onValueChange?.(nextValue)
     }
   }
 
-  const classes = ['flex gap-2', className].filter(Boolean).join(' ')
-
   return (
-    <div {...props} role="tablist" className={classes} onKeyDown={handleKeyDown}>
+    <div
+      {...props}
+      role="tablist"
+      className={twMerge('flex gap-2', className)}
+      onKeyDown={handleKeyDown}
+    >
       {children}
     </div>
   )
@@ -153,52 +157,59 @@ export type TabsTriggerProps = Omit<
   children: React.ReactNode
 }
 
-export const TabsTrigger = ({
-  value,
-  children,
-  className = '',
-  onClick,
-  disabled,
-  id,
-  ...props
-}: TabsTriggerProps) => {
-  const { value: selectedValue, onValueChange, baseId } =
-    useTabsContext('TabsTrigger')
-  const isSelected = selectedValue === value
-  const triggerId = id ?? getTriggerId(baseId, value)
-  const panelId = getPanelId(baseId, value)
+export const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
+  (
+    {
+      value,
+      children,
+      className,
+      onClick,
+      disabled,
+      id,
+      type = 'button',
+      ...props
+    },
+    ref
+  ) => {
+    const { value: selectedValue, onValueChange, baseId } =
+      useTabsContext('TabsTrigger')
+    const isSelected = selectedValue === value
+    const triggerId = id ?? getTriggerId(baseId, value)
+    const panelId = getPanelId(baseId, value)
 
-  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (disabled) return
-    onValueChange(value)
-    onClick?.(e)
+    const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (disabled) return
+      onValueChange?.(value)
+      onClick?.(e)
+    }
+
+    return (
+      <button
+        {...props}
+        ref={ref}
+        type={type}
+        role="tab"
+        id={triggerId}
+        aria-selected={isSelected}
+        aria-controls={panelId}
+        tabIndex={isSelected && !disabled ? 0 : -1}
+        data-state={isSelected ? 'active' : 'inactive'}
+        data-value={value}
+        disabled={disabled}
+        className={twMerge(
+          'px-2 py-1 border border-control rounded bg-white text-gray-900 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 disabled:cursor-not-allowed',
+          isSelected &&
+            'border-2 bg-gray-100 font-semibold forced-colors:border-[Highlight]',
+          className
+        )}
+        onClick={handleClick}
+      >
+        {children}
+      </button>
+    )
   }
-
-  const baseClasses =
-    'px-2 py-1 border rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 disabled:opacity-50 disabled:cursor-not-allowed'
-  const stateClasses = isSelected
-    ? 'bg-gray-900 text-white font-semibold border-gray-900'
-    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
-  const classes = [baseClasses, stateClasses, className].filter(Boolean).join(' ')
-
-  return (
-    <button
-      {...props}
-      type="button"
-      role="tab"
-      id={triggerId}
-      aria-selected={isSelected}
-      aria-controls={panelId}
-      tabIndex={isSelected && !disabled ? 0 : -1}
-      data-value={value}
-      disabled={disabled}
-      className={classes}
-      onClick={handleClick}
-    >
-      {children}
-    </button>
-  )
-}
+)
+TabsTrigger.displayName = 'TabsTrigger'
 
 export type TabsContentProps = React.HTMLAttributes<HTMLDivElement> & {
   value?: string

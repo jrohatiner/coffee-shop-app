@@ -12,12 +12,13 @@ except Exception:
 DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./dev.db"
 INSTANCE_SOCKET = os.getenv("INSTANCE_UNIX_SOCKET")
 
-if INSTANCE_SOCKET and DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+if INSTANCE_SOCKET and not DATABASE_URL.startswith("sqlite"):
     DATABASE_URL = DATABASE_URL.replace("localhost", f"/cloudsql/{INSTANCE_SOCKET}")
 
 connect_args = (
     {"check_same_thread": False}
     if DATABASE_URL and DATABASE_URL.startswith("sqlite")
+    if DATABASE_URL.startswith("sqlite")
     else {"sslmode": "disable"}
 )
 
