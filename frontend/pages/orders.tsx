@@ -17,6 +17,7 @@ import {
 import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
 import type { Socket } from 'socket.io-client'
 import {
   OrderSummary,
@@ -322,12 +323,12 @@ export default function Orders(){
 
           <div className="space-y-3">
             <div className="font-medium">Order Status</div>
-            <select className="border rounded px-3 py-2" value={status} onChange={e=>setStatus(e.target.value as any)}>
+            <Select value={status} onChange={e=>setStatus(e.target.value as any)}>
               <option value="pending">pending</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
               <option value="cancelled">cancelled</option>
-            </select>
+            </Select>
 
             <div className="border rounded p-3">
               <div className="font-medium mb-2">Cart</div>
@@ -351,10 +352,9 @@ export default function Orders(){
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1">
             <label htmlFor="orders-status-filter" className="text-sm font-medium">Status Filter</label>
-            <select
+            <Select
               id="orders-status-filter"
               aria-label="Filter by status"
-              className="border rounded px-3 py-2"
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value)
@@ -366,7 +366,7 @@ export default function Orders(){
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
               <option value="cancelled">cancelled</option>
-            </select>
+            </Select>
           </div>
 
           <div className="flex flex-col gap-1">
@@ -386,10 +386,9 @@ export default function Orders(){
 
           <div className="flex flex-col gap-1">
             <label htmlFor="orders-page-size" className="text-sm font-medium">Page Size</label>
-            <select
+            <Select
               id="orders-page-size"
               aria-label="Orders per page"
-              className="border rounded px-3 py-2"
               value={pageSize}
               onChange={(e) => {
                 setPageSize(Number(e.target.value))
@@ -399,7 +398,7 @@ export default function Orders(){
               {PAGE_SIZE_OPTIONS.map((size) => (
                 <option key={size} value={size}>{size} per page</option>
               ))}
-            </select>
+            </Select>
           </div>
 
           {(statusFilter || dateFilter) && (

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import api from '../lib/api'
 import { OrderDetail, OrderSummary } from '../lib/orderState'
 import Dialog from './ui/Dialog'
+import Button from './ui/Button'
 
 type OrderDetailModalProps = {
   order: OrderSummary | null
@@ -82,7 +83,7 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
             ))}
           </ul>
         )}
-        <button className="mt-3 px-3 py-2 border rounded" onClick={onClose}>Close</button>
+        <Button className="mt-3" onClick={onClose}>Close</Button>
       </div>
     </Dialog>
   )
