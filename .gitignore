@@ -42,5 +42,6 @@ Thumbs.db
 .coverage
 htmlcov/
 pytest_cache/
+.pytest_cache/
 playwright-report/
 test-results/
