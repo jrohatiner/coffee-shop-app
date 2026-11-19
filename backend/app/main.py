@@ -6,7 +6,14 @@ from .routers import auth as auth_router, dashboard, orders, inventory, reports,
 from .websockets import init_websockets
 from .auth import get_jwt_secret
 
+def ensure_indexes(bind_engine=engine) -> None:
+    for table in Base.metadata.tables.values():
+        for index in table.indexes:
+            index.create(bind=bind_engine, checkfirst=True)
+
+
 Base.metadata.create_all(bind=engine)
+ensure_indexes(bind_engine=engine)
 
 app = FastAPI(title="Coffee Shop Ordering System", version="1.0.0")
 
