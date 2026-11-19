@@ -1,6 +1,8 @@
-from pydantic import BaseModel
-from typing import List, Optional
 from datetime import datetime
+from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel
 
 # ---------- Users ----------
 class UserBase(BaseModel):
@@ -30,6 +32,12 @@ class ProductOut(ProductBase):
         orm_mode = True
 
 # ---------- Orders ----------
+class OrderStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
 class OrderItemBase(BaseModel):
     product_id: int
     quantity: int
@@ -62,7 +70,7 @@ class OrderSummaryOut(BaseModel):
 
 class OrderOut(OrderBase):
     id: int
-    user_id: int
+    user_id: Optional[int] = None
     created_at: datetime
     items: List[OrderItemOut]
     class Config:
