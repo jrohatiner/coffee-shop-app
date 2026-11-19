@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 from passlib.context import CryptContext
 
+from app import database as database_module
 from app.database import Base, get_db
 from app.main import app
 from app import models
@@ -34,8 +35,15 @@ def override_get_db():
     finally:
         db.close()
 
-
-app.dependency_overrides[get_db] = override_get_db
+@pytest.fixture(autouse=True)
+def restore_global_db_bind():
+    prev_engine = database_module.engine
+    prev_bind = database_module.SessionLocal.kw.get("bind")
+    try:
+        yield
+    finally:
+        database_module.engine = prev_engine
+        database_module.SessionLocal.configure(bind=prev_bind)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -86,5 +94,14 @@ def db_session():
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
-        yield c
+    had_prev = get_db in app.dependency_overrides
+    prev_override = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        if had_prev:
+            app.dependency_overrides[get_db] = prev_override
+        else:
+            app.dependency_overrides.pop(get_db, None)
