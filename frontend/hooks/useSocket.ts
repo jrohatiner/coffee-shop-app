@@ -36,6 +36,5 @@ export const useSocket = (
       }
     }
   }, [enabled])
-
   return ref
 }

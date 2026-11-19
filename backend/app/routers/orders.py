@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -14,6 +15,15 @@ router = APIRouter()
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 ALLOWED_ORDER_STATUSES = {s.value for s in schemas.OrderStatus}
+
+
+def _serialize_order_summary(order) -> dict:
+    summary = schemas.OrderSummaryOut(
+        id=order.id,
+        status=order.status,
+        created_at=order.created_at,
+    )
+    return jsonable_encoder(summary)
 
 
 def _orders_with_details_query(db: Session):
@@ -122,10 +132,11 @@ async def create_order(
     db.flush()
 
     order_out = _serialize_order(db_order)
+    order_summary = _serialize_order_summary(order_out)
     db.commit()
 
-    # Notify listeners
-    await sio.emit("new_order")
+    # Notify listeners with lightweight summary data
+    await sio.emit("new_order", order_summary)
     await sio.emit("stock_update")
 
     return order_out
@@ -186,10 +197,11 @@ async def cancel_order(
     db.flush()
 
     order_out = _serialize_order(order)
+    cancelled_payload = {**_serialize_order_summary(order_out), "order_id": order_out.id}
     db.commit()
 
     await sio.emit("stock_update")
-    await sio.emit("order_cancelled", {"order_id": order_out.id})
+    await sio.emit("order_cancelled", cancelled_payload)
 
     return order_out
 
@@ -230,8 +242,8 @@ def update_order(
     return _serialize_order(updated_order)
 
 
-@router.get("/", response_model=List[schemas.OrderOut])
-@router.get("", response_model=List[schemas.OrderOut], include_in_schema=False)
+@router.get("/", response_model=List[schemas.OrderSummaryOut])
+@router.get("", response_model=List[schemas.OrderSummaryOut], include_in_schema=False)
 def list_orders(
     response: Response,
     status: Optional[str] = None,
@@ -250,7 +262,7 @@ def list_orders(
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    q = _orders_with_details_query(db)
+    q = db.query(models.Order.id, models.Order.status, models.Order.created_at)
     if status:
         q = q.filter(models.Order.status == status)
     if date_filter is not None:
@@ -268,4 +280,4 @@ def list_orders(
     )
     has_more = len(rows) > limit
     response.headers["X-Has-More"] = "true" if has_more else "false"
-    return [_serialize_order(row) for row in rows[:limit]]
+    return rows[:limit]

@@ -19,9 +19,14 @@ import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import type { Socket } from 'socket.io-client'
+import {
+  OrderSummary,
+  reconcileCancelledOrder,
+  reconcileCreatedOrder,
+  toOrderSummary,
+} from '../lib/orderState'
 
 type Product = { id:number; name:string; price:number; stock:number }
-type Order = { id:number; status:string; created_at:string; items:any[] }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
@@ -67,8 +72,8 @@ function ProductOrderRow({
 export default function Orders(){
   const user = useAuth()
   const username = user?.sub ?? null
-  const [orders, setOrders] = useState<Order[]>([])
-  const [selected, setSelected] = useState<Order|null>(null)
+  const [orders, setOrders] = useState<OrderSummary[]>([])
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<Record<number, number>>({}) // productId -> qty
   const [status, setStatus] = useState<'pending'|'in_progress'|'completed'|'cancelled'>('pending')
@@ -93,6 +98,32 @@ export default function Orders(){
   const pendingLocalCancelsRef = useRef<Map<number, ReturnType<typeof setTimeout> | null>>(new Map())
   const pendingLocalStockRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
+  const ordersRef = useRef(orders)
+  ordersRef.current = orders
+  const viewStateRef = useRef({ page, pageSize, statusFilter, dateFilter, hasMore })
+  viewStateRef.current = { page, pageSize, statusFilter, dateFilter, hasMore }
+
+  const applyCreatedOrder = useCallback((payload: unknown) => {
+    const view = viewStateRef.current
+    const summary = toOrderSummary(payload)
+    if (
+      summary &&
+      view.page === 1 &&
+      (!view.statusFilter || summary.status === view.statusFilter) &&
+      (!view.dateFilter || summary.created_at.slice(0, 10) === view.dateFilter) &&
+      ordersRef.current.length >= view.pageSize &&
+      !ordersRef.current.some((o) => o.id === summary.id)
+    ) {
+      setHasMore(true)
+    }
+    setOrders((prev) => reconcileCreatedOrder(prev, payload, view))
+  }, [])
+
+  const applyCancelledOrder = useCallback((payload: unknown) => {
+    const view = viewStateRef.current
+    setOrders((prev) => reconcileCancelledOrder(prev, payload, view))
+  }, [])
+
   const fetchOrders = useCallback(() => {
     const seq = ++requestSeqRef.current
     const params: Record<string, string | number> = {
@@ -106,7 +137,7 @@ export default function Orders(){
       .get('/orders', { params })
       .then((r) => {
         if (seq !== requestSeqRef.current) return
-        const data: Order[] = r.data
+        const data: OrderSummary[] = r.data
         setOrders(data)
         const headerHasMore = r.headers?.['x-has-more']
         const more = headerHasMore !== undefined
@@ -125,10 +156,12 @@ export default function Orders(){
     []
   )
 
-  const fetchOrdersRef = useRef(fetchOrders)
-  fetchOrdersRef.current = fetchOrders
   const loadProductsRef = useRef(loadProducts)
   loadProductsRef.current = loadProducts
+  const applyCreatedOrderRef = useRef(applyCreatedOrder)
+  applyCreatedOrderRef.current = applyCreatedOrder
+  const applyCancelledOrderRef = useRef(applyCancelledOrder)
+  applyCancelledOrderRef.current = applyCancelledOrder
 
   useEffect(() => {
     if (username) {
@@ -154,17 +187,25 @@ export default function Orders(){
   }, [])
 
   const handleSocketReady = useCallback((s: Socket) => {
-    s.on('new_order', () => {
+    s.on('new_order', (payload: unknown) => {
+      applyCreatedOrderRef.current(payload)
       if (pendingLocalCreatesRef.current.length > 0) {
         const timer = pendingLocalCreatesRef.current.shift()
         if (timer) clearTimeout(timer)
         return
       }
       toast({ title: 'New Order' })
-      fetchOrdersRef.current()
     })
-    s.on('order_cancelled', (payload?: { order_id?: number }) => {
-      const cancelledId = payload?.order_id
+    s.on('order_cancelled', (payload: unknown) => {
+      applyCancelledOrderRef.current(payload)
+      const record =
+        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+      const cancelledId =
+        typeof record?.order_id === 'number'
+          ? record.order_id
+          : typeof record?.id === 'number'
+            ? record.id
+            : undefined
       if (cancelledId != null && pendingLocalCancelsRef.current.has(cancelledId)) {
         const timer = pendingLocalCancelsRef.current.get(cancelledId)
         if (timer) clearTimeout(timer)
@@ -181,7 +222,6 @@ export default function Orders(){
         }
       }
       toast({ title: 'Order cancelled' })
-      fetchOrdersRef.current()
     })
     s.on('stock_update', () => {
       if (pendingLocalStockRef.current.length > 0) {
@@ -196,6 +236,8 @@ export default function Orders(){
   useSocket(handleSocketReady, Boolean(username))
 
   if(!user) return null
+
+  const selected = selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null
 
   const setQty = (pid:number, qty:number) => {
     setCart(prev => {
@@ -218,7 +260,8 @@ export default function Orders(){
     pendingLocalStockRef.current.push(stockEchoToken)
 
     try{
-      await api.post('/orders', { status, items })
+      const res = await api.post('/orders', { status, items })
+      applyCreatedOrder(res.data)
       toast({title:'Order created'})
       setCart({})
       setStatus('pending')
@@ -241,7 +284,7 @@ export default function Orders(){
         pendingLocalStockRef.current[stockIdx] = expiry
       }
 
-      await Promise.all([fetchOrders(), loadProducts()])
+      await loadProducts()
     }catch(e:any){
       const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
       if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
@@ -258,7 +301,8 @@ export default function Orders(){
     pendingLocalStockRef.current.push(stockEchoToken)
 
     try{
-      await api.post(`/orders/${id}/cancel`)
+      const res = await api.post(`/orders/${id}/cancel`)
+      applyCancelledOrder(res.data)
       toast({title:'Order cancelled'})
 
       if (pendingLocalCancelsRef.current.has(id)) {
@@ -277,7 +321,7 @@ export default function Orders(){
         pendingLocalStockRef.current[stockIdx] = expiry
       }
 
-      await Promise.all([fetchOrders(), loadProducts()])
+      await loadProducts()
     }catch(e:any){
       const existing = pendingLocalCancelsRef.current.get(id)
       if (existing) clearTimeout(existing)
@@ -417,7 +461,7 @@ export default function Orders(){
                 <TableCell>{o.status}</TableCell>
                 <TableCell>{formattedCreatedAt}</TableCell>
                 <TableCell className="flex gap-2">
-                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelected(o)}>View</Button>
+                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelectedId(o.id)}>View</Button>
                   {(o.status !== 'cancelled' && o.status !== 'completed') && (
                     <Button contextLabel={`order #${o.id}`} onClick={()=>cancelOrder(o.id)}>Cancel</Button>
                   )}
@@ -455,7 +499,7 @@ export default function Orders(){
         </div>
       </section>
 
-      {selected && <OrderDetailModal order={selected} onClose={()=>setSelected(null)} />}
+      {selected && <OrderDetailModal order={selected} onClose={()=>setSelectedId(null)} />}
     </div>
   )
 }

@@ -202,6 +202,11 @@ def test_engineio_polling_to_websocket_upgrade_and_live_broadcasts(live_server):
                 cancelled_payload = next(
                     e[1] for e in events if e[0] == "order_cancelled"
                 )
-                assert cancelled_payload == {"order_id": order_id}
+                assert cancelled_payload == {
+                    "id": order_id,
+                    "status": "cancelled",
+                    "created_at": cancel_res.json()["created_at"],
+                    "order_id": order_id,
+                }
 
     asyncio.run(run_scenario())
