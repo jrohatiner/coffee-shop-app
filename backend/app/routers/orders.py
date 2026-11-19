@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
@@ -12,6 +12,8 @@ from app.websockets import sio
 
 router = APIRouter()
 
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
 ALLOWED_ORDER_STATUSES = {s.value for s in schemas.OrderStatus}
 
 
@@ -23,6 +25,20 @@ def _serialize_order_summary(order) -> dict:
     )
     return jsonable_encoder(summary)
 
+
+def _orders_with_details_query(db: Session):
+    return db.query(models.Order).options(
+        joinedload(models.Order.items).joinedload(models.OrderItem.product)
+    )
+
+
+def _get_order_with_details(db: Session, order_id: int) -> Optional[models.Order]:
+    return (
+        _orders_with_details_query(db)
+        .populate_existing()
+        .filter(models.Order.id == order_id)
+        .first()
+    )
 
 def _serialize_order(order: models.Order) -> schemas.OrderOut:
     if all(it.product is not None for it in order.items):
@@ -63,6 +79,7 @@ def _serialize_order(order: models.Order) -> schemas.OrderOut:
 
 
 @router.post("/", response_model=schemas.OrderOut)
+@router.post("", response_model=schemas.OrderOut, include_in_schema=False)
 async def create_order(
     order: schemas.OrderCreate,
     db: Session = Depends(get_db),
@@ -182,21 +199,19 @@ async def cancel_order(
 
     return order_out
 
+
 @router.get("/{order_id}", response_model=schemas.OrderOut)
 def get_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    order = (
-        db.query(models.Order)
-        .options(joinedload(models.Order.items).joinedload(models.OrderItem.product))
-        .filter(models.Order.id == order_id)
-        .first()
-    )
+    order = _orders_with_details_query(db).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(404, "Order not found")
-    return order
+    if order.user_id != current_user.id and not current_user.is_manager:
+        raise HTTPException(status_code=403, detail="Not authorized to access this order")
+    return _serialize_order(order)
 
 @router.put("/{order_id}", response_model=schemas.OrderOut)
 def update_order(
@@ -217,13 +232,27 @@ def update_order(
 
     order.status = status
     db.commit()
-    db.refresh(order)
-    return order
+    updated_order = _get_order_with_details(db, order_id)
+    return _serialize_order(updated_order)
+
 
 @router.get("/", response_model=List[schemas.OrderSummaryOut])
+@router.get("", response_model=List[schemas.OrderSummaryOut], include_in_schema=False)
 def list_orders(
+    response: Response,
     status: Optional[str] = None,
     date_filter: Optional[date] = None,
+    limit: int = Query(
+        DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
+        description=f"Maximum number of orders to return (1..{MAX_PAGE_SIZE})",
+    ),
+    offset: int = Query(
+        0,
+        ge=0,
+        description="Number of orders to skip (must be >= 0)",
+    ),
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
@@ -233,5 +262,16 @@ def list_orders(
     if date_filter:
         start_dt = datetime.combine(date_filter, time.min)
         end_dt = start_dt + timedelta(days=1)
-        q = q.filter(models.Order.created_at >= start_dt, models.Order.created_at < end_dt)
-    return q.all()
+        q = q.filter(
+            models.Order.created_at >= start_dt,
+            models.Order.created_at < end_dt,
+        )
+    rows = (
+        q.order_by(models.Order.created_at.desc(), models.Order.id.desc())
+        .offset(offset)
+        .limit(limit + 1)
+        .all()
+    )
+    has_more = len(rows) > limit
+    response.headers["X-Has-More"] = "true" if has_more else "false"
+    return rows[:limit]

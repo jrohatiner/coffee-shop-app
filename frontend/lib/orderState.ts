@@ -21,6 +21,42 @@ export type OrderDetail = OrderSummary & {
   items: OrderItemDetail[]
 }
 
+export type ReconcileOptions = {
+  page?: number
+  pageSize?: number
+  statusFilter?: string
+  dateFilter?: string
+  hasMore?: boolean
+}
+
+function compareOrderSummariesDesc(a: OrderSummary, b: OrderSummary): number {
+  const timeA = Date.parse(a.created_at)
+  const timeB = Date.parse(b.created_at)
+  if (!Number.isNaN(timeA) && !Number.isNaN(timeB) && timeA !== timeB) {
+    return timeB - timeA
+  }
+  if (a.created_at !== b.created_at) {
+    return a.created_at > b.created_at ? -1 : 1
+  }
+  return b.id - a.id
+}
+
+function insertDescending(
+  orders: OrderSummary[],
+  summary: OrderSummary,
+  pageSize?: number,
+): OrderSummary[] {
+  const insertAt = orders.findIndex((o) => compareOrderSummariesDesc(summary, o) <= 0)
+  const next =
+    insertAt === -1
+      ? [...orders, summary]
+      : [...orders.slice(0, insertAt), summary, ...orders.slice(insertAt)]
+  if (pageSize && next.length > pageSize) {
+    return next.slice(0, pageSize)
+  }
+  return next
+}
+
 export function toOrderSummary(raw: any): OrderSummary | null {
   if (!raw || typeof raw !== 'object' || typeof raw.id !== 'number') {
     return null
@@ -42,6 +78,7 @@ export function toOrderSummary(raw: any): OrderSummary | null {
 export function reconcileCreatedOrder(
   orders: OrderSummary[],
   payload: unknown,
+  options?: ReconcileOptions,
 ): OrderSummary[] {
   const summary = toOrderSummary(payload)
   if (!summary) {
@@ -50,7 +87,16 @@ export function reconcileCreatedOrder(
 
   const existingIndex = orders.findIndex((o) => o.id === summary.id)
   if (existingIndex === -1) {
-    return [...orders, summary]
+    if ((options?.page ?? 1) > 1) {
+      return orders
+    }
+    if (options?.statusFilter && summary.status !== options.statusFilter) {
+      return orders
+    }
+    if (options?.dateFilter && summary.created_at.slice(0, 10) !== options.dateFilter) {
+      return orders
+    }
+    return insertDescending(orders, summary, options?.pageSize)
   }
 
   const existing = orders[existingIndex]
@@ -79,6 +125,7 @@ export function reconcileCreatedOrder(
 export function reconcileCancelledOrder(
   orders: OrderSummary[],
   payload: unknown,
+  options?: ReconcileOptions,
 ): OrderSummary[] {
   if (!payload || typeof payload !== 'object') {
     return orders
@@ -118,14 +165,30 @@ export function reconcileCancelledOrder(
   }
 
   if (incomingCreatedAt) {
-    return [
-      ...orders,
-      {
-        id: rawId,
-        status: nextStatus,
-        created_at: incomingCreatedAt,
-      },
-    ]
+    if ((options?.page ?? 1) > 1) {
+      return orders
+    }
+    if (options?.statusFilter && nextStatus !== options.statusFilter) {
+      return orders
+    }
+    if (options?.dateFilter && incomingCreatedAt.slice(0, 10) !== options.dateFilter) {
+      return orders
+    }
+    const candidate: OrderSummary = {
+      id: rawId,
+      status: nextStatus,
+      created_at: incomingCreatedAt,
+    }
+    const pageFull =
+      Boolean(options?.hasMore) ||
+      Boolean(options?.pageSize && orders.length >= options.pageSize)
+    if (pageFull && orders.length > 0) {
+      const oldestOnPage = orders[orders.length - 1]
+      if (compareOrderSummariesDesc(candidate, oldestOnPage) > 0) {
+        return orders
+      }
+    }
+    return insertDescending(orders, candidate, options?.pageSize)
   }
 
   return orders

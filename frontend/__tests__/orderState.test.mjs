@@ -59,24 +59,24 @@ const { toOrderSummary, reconcileCreatedOrder, reconcileCancelledOrder } = modul
     created_at: '2026-11-18T10:05:00',
   }
 
-  // Case A: HTTP resolves first, then socket arrives
+  // Case A: HTTP resolves first, then socket arrives (newest-first order)
   const afterHttp = reconcileCreatedOrder(initial, postResponse)
   const afterSocket = reconcileCreatedOrder(afterHttp, socketPayload)
   assert.equal(afterSocket.length, 2)
-  assert.deepEqual(afterSocket.map(o => o.id), [1, 2])
+  assert.deepEqual(afterSocket.map(o => o.id), [2, 1])
 
-  // Case B: Socket arrives first, then HTTP resolves
+  // Case B: Socket arrives first, then HTTP resolves (newest-first order)
   const socketFirst = reconcileCreatedOrder(initial, socketPayload)
   const httpSecond = reconcileCreatedOrder(socketFirst, postResponse)
   assert.equal(httpSecond.length, 2)
-  assert.deepEqual(httpSecond.map(o => o.id), [1, 2])
+  assert.deepEqual(httpSecond.map(o => o.id), [2, 1])
 }
 
 // 3. Deduplicates local cancelOrder response and concurrent order_cancelled socket events
 {
   const initial = [
-    { id: 1, status: 'pending', created_at: '2026-11-18T10:00:00' },
     { id: 2, status: 'pending', created_at: '2026-11-18T10:05:00' },
+    { id: 1, status: 'pending', created_at: '2026-11-18T10:00:00' },
   ]
   const cancelHttp = {
     id: 2,
@@ -95,7 +95,7 @@ const { toOrderSummary, reconcileCreatedOrder, reconcileCancelledOrder } = modul
   const step1 = reconcileCancelledOrder(initial, cancelHttp)
   const step2 = reconcileCancelledOrder(step1, cancelSocket)
   assert.equal(step2.length, 2)
-  assert.equal(step2[1].status, 'cancelled')
+  assert.equal(step2[0].status, 'cancelled')
 }
 
 // 4. Out-of-order events: order_cancelled arrives BEFORE delayed new_order
@@ -125,6 +125,34 @@ const { toOrderSummary, reconcileCreatedOrder, reconcileCancelledOrder } = modul
   const updated = reconcileCancelledOrder(initial, { order_id: 5 })
   assert.equal(updated.length, 1)
   assert.equal(updated[0].status, 'cancelled')
+}
+
+// 6. Pagination & filter options: bounds page size, ignores non-page-1 inserts and older unseen cancellations
+{
+  const page1 = [
+    { id: 20, status: 'pending', created_at: '2026-11-18T10:20:00' },
+    { id: 19, status: 'pending', created_at: '2026-11-18T10:19:00' },
+  ]
+  const withNew = reconcileCreatedOrder(
+    page1,
+    { id: 21, status: 'pending', created_at: '2026-11-18T10:21:00' },
+    { page: 1, pageSize: 2, hasMore: true },
+  )
+  assert.deepEqual(withNew.map(o => o.id), [21, 20])
+
+  const onPage2 = reconcileCreatedOrder(
+    page1,
+    { id: 22, status: 'pending', created_at: '2026-11-18T10:22:00' },
+    { page: 2, pageSize: 2, hasMore: true },
+  )
+  assert.equal(onPage2, page1)
+
+  const olderCancel = reconcileCancelledOrder(
+    page1,
+    { id: 5, order_id: 5, status: 'cancelled', created_at: '2026-11-18T08:05:00' },
+    { page: 1, pageSize: 2, hasMore: true },
+  )
+  assert.equal(olderCancel, page1)
 }
 
 console.log('All frontend orderState reconciliation tests passed!')
