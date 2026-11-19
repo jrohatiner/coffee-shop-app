@@ -191,7 +191,14 @@ def test_multi_item_create_and_cancel_batch_product_queries_and_single_commit(te
     assert "FOR UPDATE" in tracker.pg_product_selects[0]
     assert tracker.commits == 1
     assert [ev[0] for ev in emit_events] == ["stock_update", "order_cancelled"]
-    assert emit_events[1][1] == ({"order_id": order_id},)
+    assert emit_events[1][1] == (
+        {
+            "id": order_id,
+            "status": "cancelled",
+            "created_at": cancelled["created_at"],
+            "order_id": order_id,
+        },
+    )
     assert all(ev[2]["commits_so_far"] == 1 for ev in emit_events)
 
     db = SessionLocal()
