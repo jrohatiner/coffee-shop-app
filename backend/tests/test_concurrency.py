@@ -12,8 +12,9 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 
-# Ensure module-level create_engine() in app.database has a valid URL on import
+# Ensure module-level create_engine() and JWT config have valid defaults on import
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("JWT_SECRET", "super-secret-test-key-for-concurrency-tests")
 
 from app import auth, database, models  # noqa: E402
 from app.main import app  # noqa: E402

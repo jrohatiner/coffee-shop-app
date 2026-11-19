@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
@@ -23,9 +23,11 @@ def _dump_product_create(product_in: schemas.ProductCreate) -> dict:
     return product_in.dict()
 
 
-def _create_inventory_item_sync(product_in: schemas.ProductCreate) -> schemas.ProductOut:
-    db = database.SessionLocal()
-    try:
+def _create_inventory_item_sync(
+    product_in: schemas.ProductCreate,
+    request: Request,
+) -> schemas.ProductOut:
+    with database.session_scope(request) as db:
         if db.query(models.Product).filter(models.Product.name == product_in.name).first():
             raise HTTPException(400, "Product name already exists")
 
@@ -34,19 +36,14 @@ def _create_inventory_item_sync(product_in: schemas.ProductCreate) -> schemas.Pr
         db.commit()
         db.refresh(product)
         return _to_product_out(product)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def _update_inventory_sync(
     product_id: int,
     product_update: schemas.ProductCreate,
+    request: Request,
 ) -> schemas.ProductOut:
-    db = database.SessionLocal()
-    try:
+    with database.session_scope(request) as db:
         product = db.query(models.Product).filter(models.Product.id == product_id).first()
         if not product:
             raise HTTPException(404, "Product not found")
@@ -58,16 +55,13 @@ def _update_inventory_sync(
         db.commit()
         db.refresh(product)
         return _to_product_out(product)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
-def _delete_inventory_item_sync(product_id: int) -> Dict[str, str]:
-    db = database.SessionLocal()
-    try:
+def _delete_inventory_item_sync(
+    product_id: int,
+    request: Request,
+) -> Dict[str, str]:
+    with database.session_scope(request) as db:
         product = db.query(models.Product).filter(models.Product.id == product_id).first()
         if not product:
             raise HTTPException(404, "Product not found")
@@ -79,11 +73,6 @@ def _delete_inventory_item_sync(product_id: int) -> Dict[str, str]:
         db.delete(product)
         db.commit()
         return {"detail": "Product deleted"}
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 @router.get("/", response_model=List[schemas.ProductOut])
@@ -97,13 +86,14 @@ def get_inventory(
 @router.post("/", response_model=schemas.ProductOut, status_code=201)
 async def create_inventory_item(
     product_in: schemas.ProductCreate,
+    request: Request,
     current_user=Depends(auth.get_current_user),
 ):
     # Optional: restrict creation to managers
     # if not current_user.is_manager:
     #     raise HTTPException(403, "Only managers can add products")
 
-    product_out = await run_in_threadpool(_create_inventory_item_sync, product_in)
+    product_out = await run_in_threadpool(_create_inventory_item_sync, product_in, request)
     await sio.emit("stock_update")
     return product_out
 
@@ -112,9 +102,15 @@ async def create_inventory_item(
 async def update_inventory(
     product_id: int,
     product_update: schemas.ProductCreate,
+    request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    product_out = await run_in_threadpool(_update_inventory_sync, product_id, product_update)
+    product_out = await run_in_threadpool(
+        _update_inventory_sync,
+        product_id,
+        product_update,
+        request,
+    )
     await sio.emit("stock_update")
     return product_out
 
@@ -122,12 +118,13 @@ async def update_inventory(
 @router.delete("/{product_id}")
 async def delete_inventory_item(
     product_id: int,
+    request: Request,
     current_user=Depends(auth.get_current_user),
 ):
     # Optional: restrict deletion to managers
     # if not current_user.is_manager:
     #     raise HTTPException(403, "Only managers can delete products")
 
-    result = await run_in_threadpool(_delete_inventory_item_sync, product_id)
+    result = await run_in_threadpool(_delete_inventory_item_sync, product_id, request)
     await sio.emit("stock_update")
     return result

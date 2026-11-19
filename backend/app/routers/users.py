@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models, schemas, auth
@@ -15,19 +16,31 @@ def create_user(
     db: Session = Depends(get_db),
     current_user=Depends(auth.get_current_user),
 ):
-    if not current_user.is_manager:
-        raise HTTPException(403, "Only managers can create users")
-    if db.query(models.User).filter(models.User.username == user.username).first():
-        raise HTTPException(400, "Username already exists")
+    try:
+        if not current_user.is_manager:
+            raise HTTPException(403, "Only managers can create users")
+        if db.query(models.User).filter(models.User.username == user.username).first():
+            raise HTTPException(400, "Username already exists")
+    finally:
+        db.close()
+
+    hashed_password = get_password_hash(user.password)
 
     u = models.User(
         username=user.username,
-        hashed_password=get_password_hash(user.password),
+        hashed_password=hashed_password,
         is_manager=user.is_manager,
     )
-    db.add(u)
-    db.commit()
-    db.refresh(u)
+    try:
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        db.expunge(u)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, "Username already exists")
+    finally:
+        db.close()
     return u
 
 @router.get("/", response_model=List[schemas.UserOut])
