@@ -425,6 +425,9 @@ export default function Orders(){
   const [orders, setOrders] = useState<OrderSummary[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
+  const [cart, setCart] = useState<Record<number, number>>({}) // productId -> qty
+  const [status, setStatus] = useState<'pending'|'in_progress'|'completed'|'cancelled'>('pending')
+  const [orderError, setOrderError] = useState('')
 
   const [page, setPage] = useState<number>(1)
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
@@ -617,13 +620,18 @@ export default function Orders(){
     setCart(prev => {
       const next = { ...prev }
       if(qty <= 0) delete next[pid]; else next[pid] = qty
+      if(Object.keys(next).length > 0) setOrderError('')
       return next
     })
   }
 
   const createOrder = async () => {
     const items = Object.entries(cart).map(([product_id, quantity])=>({ product_id: Number(product_id), quantity: Number(quantity) }))
-    if(items.length === 0){ toast({title:'Add at least one item', variant:'destructive'}); return }
+    if(items.length === 0){
+      setOrderError('Add at least one item with a quantity greater than 0 before submitting an order.')
+      toast({title:'Add at least one item', variant:'destructive'})
+      return
+    }
 
     const createEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
     clearTimeout(createEchoToken)
@@ -634,6 +642,8 @@ export default function Orders(){
     pendingLocalStockRef.current.push(stockEchoToken)
 
     try{
+      await api.post('/orders', { status, items })
+      setOrderError('')
       const res = await api.post('/orders', { status, items })
       applyCreatedOrder(res.data)
       toast({title:'Order created'})
@@ -679,6 +689,8 @@ export default function Orders(){
       if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
       const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
       if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
+      const detail = e?.response?.data?.detail ?? 'Failed to create order'
+      setOrderError(typeof detail === 'string' ? detail : 'Failed to create order')
       toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create order', variant:'destructive'})
     }
   }
@@ -813,6 +825,28 @@ export default function Orders(){
             <div className="font-medium">Pick Products</div>
             <div className="space-y-2 max-h-80 overflow-auto pr-2">
               {products.map(p=>(
+                <div key={p.id} className="flex items-center justify-between border rounded p-2">
+                  <div className="flex flex-col">
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-sm text-gray-700">${p.price.toFixed(2)} · stock {p.stock}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor={`order-qty-${p.id}`} className="text-sm font-medium text-gray-800">
+                      Qty
+                    </label>
+                    <Input
+                      id={`order-qty-${p.id}`}
+                      aria-label={`Quantity for ${p.name}`}
+                      aria-invalid={orderError ? 'true' : undefined}
+                      aria-describedby={orderError ? 'order-cart-error' : undefined}
+                      type="number"
+                      min={0}
+                      value={cart[p.id] ?? 0}
+                      onChange={e=>setQty(p.id, parseInt((e.target as HTMLInputElement).value || '0'))}
+                      className="w-20"
+                    />
+                  </div>
+                </div>
                 <ProductOrderRow
                   key={p.id}
                   product={p}
@@ -824,6 +858,8 @@ export default function Orders(){
           </div>
 
           <div className="space-y-3">
+            <label htmlFor="order-status" className="font-medium block">Order Status</label>
+            <select id="order-status" className="border rounded px-3 py-2 bg-white text-gray-900" value={status} onChange={e=>setStatus(e.target.value as any)}>
             <Select
               label="Order Status"
               labelClassName="text-base font-medium text-gray-900"
@@ -844,9 +880,30 @@ export default function Orders(){
                   if(!p) return null
                   return <li key={pid} className="flex justify-between"><span>{p.name}</span><span>× {qty}</span></li>
                 })}
-                {Object.keys(cart).length===0 && <li className="text-gray-500 text-sm">No items added</li>}
+                {Object.keys(cart).length===0 && <li className="text-gray-600 text-sm">No items added</li>}
               </ul>
             </div>
+
+            {orderError && (
+              <p
+                id="order-cart-error"
+                className="flex items-start gap-1.5 text-sm font-medium text-red-800"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-red-800"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span>{orderError}</span>
+              </p>
+            )}
 
             <Button onClick={createOrder}>Create Order</Button>
           </div>
