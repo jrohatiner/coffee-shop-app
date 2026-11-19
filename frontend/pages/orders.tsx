@@ -308,10 +308,9 @@ export default function Orders(){
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1">
             <label htmlFor="orders-status-filter" className="text-sm font-medium">Status Filter</label>
-            <select
+            <Select
               id="orders-status-filter"
               aria-label="Filter by status"
-              className="border rounded px-3 py-2"
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value)
@@ -323,7 +322,7 @@ export default function Orders(){
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
               <option value="cancelled">cancelled</option>
-            </select>
+            </Select>
           </div>
 
           <div className="flex flex-col gap-1">
@@ -343,10 +342,9 @@ export default function Orders(){
 
           <div className="flex flex-col gap-1">
             <label htmlFor="orders-page-size" className="text-sm font-medium">Page Size</label>
-            <select
+            <Select
               id="orders-page-size"
               aria-label="Orders per page"
-              className="border rounded px-3 py-2"
               value={pageSize}
               onChange={(e) => {
                 setPageSize(Number(e.target.value))
@@ -356,7 +354,7 @@ export default function Orders(){
               {PAGE_SIZE_OPTIONS.map((size) => (
                 <option key={size} value={size}>{size} per page</option>
               ))}
-            </select>
+            </Select>
           </div>
 
           {(statusFilter || dateFilter) && (
