@@ -155,7 +155,13 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert created_product["stock"] == 40
             assert len(sql_threads) > 0
             assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
-            assert emit_pool_snapshots == [("stock_update", None, 0)]
+            assert emit_pool_snapshots == [
+                (
+                    "stock_update",
+                    {"updated": [created_product], "deleted_ids": []},
+                    0,
+                )
+            ]
 
             # 2. PUT /inventory/{product_id} (update_inventory)
             sql_threads.clear()
@@ -175,7 +181,13 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             }
             assert len(sql_threads) > 0
             assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
-            assert emit_pool_snapshots == [("stock_update", None, 0)]
+            assert emit_pool_snapshots == [
+                (
+                    "stock_update",
+                    {"updated": [updated_product], "deleted_ids": []},
+                    0,
+                )
+            ]
 
             # 3. POST /orders/ (create_order)
             sql_threads.clear()
@@ -202,8 +214,26 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert len(sql_threads) > 0
             assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
             assert emit_pool_snapshots == [
-                ("new_order", None, 0),
-                ("stock_update", None, 0),
+                (
+                    "new_order",
+                    {
+                        "id": created_order["id"],
+                        "status": "pending",
+                        "created_at": created_order["created_at"],
+                    },
+                    0,
+                ),
+                (
+                    "stock_update",
+                    {
+                        "updated": [
+                            created_order["items"][0]["product"],
+                            created_order["items"][1]["product"],
+                        ],
+                        "deleted_ids": [],
+                    },
+                    0,
+                ),
             ]
 
             # 4. POST /orders/{order_id}/cancel (cancel_order)
@@ -221,8 +251,27 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert len(sql_threads) > 0
             assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
             assert emit_pool_snapshots == [
-                ("stock_update", None, 0),
-                ("order_cancelled", {"order_id": created_order["id"]}, 0),
+                (
+                    "stock_update",
+                    {
+                        "updated": [
+                            cancelled_order["items"][0]["product"],
+                            cancelled_order["items"][1]["product"],
+                        ],
+                        "deleted_ids": [],
+                    },
+                    0,
+                ),
+                (
+                    "order_cancelled",
+                    {
+                        "id": created_order["id"],
+                        "status": "cancelled",
+                        "created_at": cancelled_order["created_at"],
+                        "order_id": created_order["id"],
+                    },
+                    0,
+                ),
             ]
 
             # 5. DELETE /inventory/{product_id} (delete_inventory_item)
@@ -236,7 +285,13 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert resp.json() == {"detail": "Product deleted"}
             assert len(sql_threads) > 0
             assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
-            assert emit_pool_snapshots == [("stock_update", None, 0)]
+            assert emit_pool_snapshots == [
+                (
+                    "stock_update",
+                    {"updated": [], "deleted_ids": [created_product["id"]]},
+                    0,
+                )
+            ]
 
     try:
         _run_async(_exercise_all_five_routes())
@@ -501,10 +556,25 @@ def test_validation_errors_and_idempotency_preserve_messages_and_emit_no_events(
             # Cancel once -> emits stock_update & order_cancelled; cancel again -> idempotent, 0 events
             cancel_1 = await client.post(f"/orders/{order_id}/cancel", headers=headers)
             assert cancel_1.status_code == 200
-            assert cancel_1.json()["items"][0]["product"]["stock"] == 100
+            cancel_1_json = cancel_1.json()
+            assert cancel_1_json["items"][0]["product"]["stock"] == 100
             assert emitted == [
-                ("stock_update", None),
-                ("order_cancelled", {"order_id": order_id}),
+                (
+                    "stock_update",
+                    {
+                        "updated": [cancel_1_json["items"][0]["product"]],
+                        "deleted_ids": [],
+                    },
+                ),
+                (
+                    "order_cancelled",
+                    {
+                        "id": order_id,
+                        "status": "cancelled",
+                        "created_at": cancel_1_json["created_at"],
+                        "order_id": order_id,
+                    },
+                ),
             ]
 
             emitted.clear()

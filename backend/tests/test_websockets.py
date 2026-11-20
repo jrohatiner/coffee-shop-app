@@ -199,6 +199,68 @@ def test_engineio_polling_to_websocket_upgrade_and_live_broadcasts(live_server):
                 assert event_names.count("stock_update") == 6
                 assert event_names.count("new_order") == 1
                 assert event_names.count("order_cancelled") == 1
+                stock_payloads = [e[1] for e in events if e[0] == "stock_update"]
+                assert stock_payloads == [
+                    {
+                        "updated": [
+                            {
+                                "id": prod_id,
+                                "name": "Cold Brew Concentrate",
+                                "price": 5.25,
+                                "stock": 20,
+                            }
+                        ],
+                        "deleted_ids": [],
+                    },
+                    {
+                        "updated": [
+                            {
+                                "id": temp_id,
+                                "name": "Seasonal Syrup",
+                                "price": 1.5,
+                                "stock": 10,
+                            }
+                        ],
+                        "deleted_ids": [],
+                    },
+                    {
+                        "updated": [
+                            {
+                                "id": prod_id,
+                                "name": "Cold Brew Concentrate",
+                                "price": 5.25,
+                                "stock": 25,
+                            }
+                        ],
+                        "deleted_ids": [],
+                    },
+                    {
+                        "updated": [],
+                        "deleted_ids": [temp_id],
+                    },
+                    {
+                        "updated": [
+                            {
+                                "id": prod_id,
+                                "name": "Cold Brew Concentrate",
+                                "price": 5.25,
+                                "stock": 23,
+                            }
+                        ],
+                        "deleted_ids": [],
+                    },
+                    {
+                        "updated": [
+                            {
+                                "id": prod_id,
+                                "name": "Cold Brew Concentrate",
+                                "price": 5.25,
+                                "stock": 25,
+                            }
+                        ],
+                        "deleted_ids": [],
+                    },
+                ]
                 cancelled_payload = next(
                     e[1] for e in events if e[0] == "order_cancelled"
                 )
