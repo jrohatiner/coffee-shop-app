@@ -11,16 +11,33 @@ Full-stack app:
 ```bash
 cd backend
 python3.11 -m venv .venv && source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install --no-cache-dir --require-hashes -r requirements.txt
-# set .env from .env.example and ensure DATABASE_URL points to local Postgres (or SQLite)
-uvicorn app.main:app --reload
+pip install pytest httpx websockets
+
+# Quickstart with default SQLite fallback (creates dev.db when DATABASE_URL is unset)
+export JWT_SECRET="local-dev-jwt-secret-key-12345"
+python -c "import app.main"
 python seed.py
+uvicorn app.main:app --reload
+
+# Optional: point DATABASE_URL at local PostgreSQL via .env (copied from .env.example)
+# export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/coffee"
+
+# Run backend test suite (matches CI backend-checks)
+PYTHONPATH=. python -m pytest -v
 ```
 
 ### Frontend
 ```bash
 cd frontend
 npm ci
+
+# Verify production compilation, TypeScript types, and unit tests (matches CI frontend-build)
+npm run build
+npm run test:unit
+
+# Start local dev server on http://localhost:3000
 npm run dev
 ```
 
@@ -46,3 +63,5 @@ npm install --package-lock-only
 npm ci
 npm run build
 ```
+
+See [AGENTS.md](./AGENTS.md) for full local CI and Cloud Build verification commands.
