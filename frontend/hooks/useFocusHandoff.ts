@@ -1,11 +1,7 @@
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 export type FocusTargetCandidate =
-  | RefObject<HTMLElement | null>
-  | HTMLElement
-  | string
-  | null
-  | undefined
+  RefObject<HTMLElement | null> | HTMLElement | string | null | undefined
 
 export type FocusHandoffTarget =
   | FocusTargetCandidate
@@ -13,10 +9,7 @@ export type FocusHandoffTarget =
   | (() => FocusTargetCandidate | readonly FocusTargetCandidate[])
 
 export type FocusOriginInput =
-  | RefObject<HTMLElement | null>
-  | HTMLElement
-  | null
-  | undefined
+  RefObject<HTMLElement | null> | HTMLElement | null | undefined
 
 export interface FocusHandoffHandle {
   commit: () => void
@@ -48,7 +41,8 @@ function isElementConnected(el: Element | null | undefined): boolean {
   if (typeof el.isConnected === 'boolean') {
     return el.isConnected
   }
-  const doc = el.ownerDocument ?? (typeof document !== 'undefined' ? document : null)
+  const doc =
+    el.ownerDocument ?? (typeof document !== 'undefined' ? document : null)
   return Boolean(doc && typeof doc.contains === 'function' && doc.contains(el))
 }
 
@@ -60,13 +54,18 @@ function isElementDisabled(el: Element | null | undefined): boolean {
   if (typeof el.hasAttribute === 'function' && el.hasAttribute('disabled')) {
     return true
   }
-  if (typeof el.getAttribute === 'function' && el.getAttribute('aria-disabled') === 'true') {
+  if (
+    typeof el.getAttribute === 'function' &&
+    el.getAttribute('aria-disabled') === 'true'
+  ) {
     return true
   }
   return false
 }
 
-function canReceiveProgrammaticFocus(el: HTMLElement | null | undefined): el is HTMLElement {
+function canReceiveProgrammaticFocus(
+  el: HTMLElement | null | undefined
+): el is HTMLElement {
   if (!el || typeof el.focus !== 'function') return false
   if (!isElementConnected(el) || isElementDisabled(el)) return false
   if (el.hidden || el.getAttribute?.('aria-hidden') === 'true') return false
@@ -133,7 +132,10 @@ export function useFocusHandoff() {
   const [, setCommitTick] = useState(0)
 
   const prepareFocusHandoff = useCallback(
-    (origin: FocusOriginInput, target: FocusHandoffTarget): FocusHandoffHandle => {
+    (
+      origin: FocusOriginInput,
+      target: FocusHandoffTarget
+    ): FocusHandoffHandle => {
       if (typeof document === 'undefined') {
         return NOOP_HANDLE
       }
@@ -156,7 +158,7 @@ export function useFocusHandoff() {
         commit: () => {
           if (pendingRef.current && pendingRef.current.id === id) {
             pendingRef.current.committed = true
-            setCommitTick(tick => tick + 1)
+            setCommitTick((tick) => tick + 1)
           }
         },
         cancel: () => {

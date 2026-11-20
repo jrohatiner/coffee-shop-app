@@ -15,7 +15,9 @@ const CORS_HEADERS = {
 }
 
 function createMockJwt(sub = 'manager@coffeeshop.example'): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
     JSON.stringify({
       sub,
@@ -27,16 +29,18 @@ function createMockJwt(sub = 'manager@coffeeshop.example'): string {
 
 async function installAuthAndBlockWs(page: Page) {
   const token = createMockJwt()
-  await page.addInitScript(jwt => {
+  await page.addInitScript((jwt) => {
     window.localStorage.setItem('token', jwt)
   }, token)
-  await page.route('**/ws/**', async route => {
+  await page.route('**/ws/**', async (route) => {
     await route.abort()
   })
 }
 
 async function assertActiveElementNotBody(page: Page) {
-  const tagName = await page.evaluate(() => document.activeElement?.tagName ?? 'NONE')
+  const tagName = await page.evaluate(
+    () => document.activeElement?.tagName ?? 'NONE'
+  )
   expect(tagName).not.toBe('BODY')
   expect(tagName).not.toBe('HTML')
   expect(tagName).not.toBe('NONE')
@@ -70,8 +74,9 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
     ]
 
     await page.route(
-      url => url.origin === 'http://localhost:8000' && url.pathname === '/inventory',
-      async route => {
+      (url) =>
+        url.origin === 'http://localhost:8000' && url.pathname === '/inventory',
+      async (route) => {
         if (route.request().method() === 'OPTIONS') {
           await route.fulfill({ status: 204, headers: CORS_HEADERS })
           return
@@ -80,14 +85,17 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
           status: 200,
           headers: CORS_HEADERS,
           contentType: 'application/json',
-          body: JSON.stringify([{ id: 1, name: 'Espresso', price: 3.5, stock: 25 }]),
+          body: JSON.stringify([
+            { id: 1, name: 'Espresso', price: 3.5, stock: 25 },
+          ]),
         })
       }
     )
 
     await page.route(
-      url => url.origin === 'http://localhost:8000' && url.pathname === '/orders',
-      async route => {
+      (url) =>
+        url.origin === 'http://localhost:8000' && url.pathname === '/orders',
+      async (route) => {
         if (route.request().method() === 'OPTIONS') {
           await route.fulfill({ status: 204, headers: CORS_HEADERS })
           return
@@ -97,7 +105,9 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
         const limit = Number(urlObj.searchParams.get('limit') || '20')
         const offset = Number(urlObj.searchParams.get('offset') || '0')
 
-        const filtered = status ? allOrders.filter(o => o.status === status) : allOrders
+        const filtered = status
+          ? allOrders.filter((o) => o.status === status)
+          : allOrders
         const slice = filtered.slice(offset, offset + limit)
         const hasMore = offset + limit < filtered.length
 
@@ -110,14 +120,19 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
       }
     )
 
-    await page.route('http://localhost:8000/orders/*/cancel', async route => {
+    await page.route('http://localhost:8000/orders/*/cancel', async (route) => {
       if (route.request().method() === 'OPTIONS') {
         await route.fulfill({ status: 204, headers: CORS_HEADERS })
         return
       }
-      const match = route.request().url().match(/\/orders\/(\d+)\/cancel$/)
+      const match = route
+        .request()
+        .url()
+        .match(/\/orders\/(\d+)\/cancel$/)
       const orderId = match ? Number(match[1]) : -1
-      allOrders = allOrders.map(o => (o.id === orderId ? { ...o, status: 'cancelled' } : o))
+      allOrders = allOrders.map((o) =>
+        o.id === orderId ? { ...o, status: 'cancelled' } : o
+      )
       await route.fulfill({
         status: 200,
         headers: CORS_HEADERS,
@@ -169,7 +184,9 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
     await cancel201.focus()
     await page.keyboard.press('Enter')
     await expect(row201).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'View order #203' })).toBeFocused()
+    await expect(
+      page.getByRole('button', { name: 'View order #203' })
+    ).toBeFocused()
 
     const cancel203 = page.getByRole('button', { name: 'Cancel order #203' })
     await cancel203.focus()
@@ -222,8 +239,9 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
     ]
 
     await page.route(
-      url => url.origin === 'http://localhost:8000' && url.pathname === '/users',
-      async route => {
+      (url) =>
+        url.origin === 'http://localhost:8000' && url.pathname === '/users',
+      async (route) => {
         if (route.request().method() === 'OPTIONS') {
           await route.fulfill({ status: 204, headers: CORS_HEADERS })
           return
@@ -238,14 +256,16 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
     )
 
     await page.route(
-      url => url.origin === 'http://localhost:8000' && /^\/users\/\d+$/.test(url.pathname),
-      async route => {
+      (url) =>
+        url.origin === 'http://localhost:8000' &&
+        /^\/users\/\d+$/.test(url.pathname),
+      async (route) => {
         if (route.request().method() === 'OPTIONS') {
           await route.fulfill({ status: 204, headers: CORS_HEADERS })
           return
         }
         const id = Number(route.request().url().split('/').pop())
-        users = users.filter(u => u.id !== id)
+        users = users.filter((u) => u.id !== id)
         await route.fulfill({
           status: 200,
           headers: CORS_HEADERS,
@@ -294,8 +314,9 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
     ]
 
     await page.route(
-      url => url.origin === 'http://localhost:8000' && url.pathname === '/inventory',
-      async route => {
+      (url) =>
+        url.origin === 'http://localhost:8000' && url.pathname === '/inventory',
+      async (route) => {
         if (route.request().method() === 'OPTIONS') {
           await route.fulfill({ status: 204, headers: CORS_HEADERS })
           return
@@ -310,14 +331,16 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
     )
 
     await page.route(
-      url => url.origin === 'http://localhost:8000' && /^\/inventory\/\d+$/.test(url.pathname),
-      async route => {
+      (url) =>
+        url.origin === 'http://localhost:8000' &&
+        /^\/inventory\/\d+$/.test(url.pathname),
+      async (route) => {
         if (route.request().method() === 'OPTIONS') {
           await route.fulfill({ status: 204, headers: CORS_HEADERS })
           return
         }
         const id = Number(route.request().url().split('/').pop())
-        products = products.filter(p => p.id !== id)
+        products = products.filter((p) => p.id !== id)
         await route.fulfill({
           status: 200,
           headers: CORS_HEADERS,
@@ -333,7 +356,9 @@ test.describe('Keyboard focus handoff across Orders, Users, and Inventory', () =
     await expect(productsHeading).toHaveAttribute('tabindex', '-1')
 
     const deleteLatte = page.getByRole('button', { name: 'Delete Latte' })
-    const deleteColdBrew = page.getByRole('button', { name: 'Delete Cold Brew' })
+    const deleteColdBrew = page.getByRole('button', {
+      name: 'Delete Cold Brew',
+    })
     const deleteEspresso = page.getByRole('button', { name: 'Delete Espresso' })
 
     // Delete middle product (Latte) -> focus moves to Cold Brew's Delete button

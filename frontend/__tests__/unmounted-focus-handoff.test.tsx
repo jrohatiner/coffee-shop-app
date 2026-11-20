@@ -38,10 +38,14 @@ if (!Object.getOwnPropertyDescriptor(TestElement.prototype, 'value')) {
       if ('_inputValue' in (this as any)) {
         return (this as any)._inputValue
       }
-      return this.getAttribute('value') ?? (this.tagName === 'OPTION' ? this.textContent : '')
+      return (
+        this.getAttribute('value') ??
+        (this.tagName === 'OPTION' ? this.textContent : '')
+      )
     },
     set(this: TestElement, nextVal: unknown) {
-      const str = nextVal === undefined || nextVal === null ? '' : String(nextVal)
+      const str =
+        nextVal === undefined || nextVal === null ? '' : String(nextVal)
       if (this.tagName === 'SELECT') {
         ;(this as any)._selectValue = str
         for (const opt of this.querySelectorAll('option')) {
@@ -57,7 +61,9 @@ if (!Object.getOwnPropertyDescriptor(TestElement.prototype, 'value')) {
 }
 
 function makeValidJwt(sub = 'manager@coffee.test'): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
     JSON.stringify({ sub, exp: Math.floor(Date.now() / 1000) + 3600 })
   ).toString('base64url')
@@ -90,13 +96,17 @@ function fireChange(element: TestElement, value: string) {
   act(() => {
     ;(element as any).value = value
     element.setAttribute('value', value)
-    element.dispatchEvent(new TestEvent('change', { bubbles: true, cancelable: true }))
+    element.dispatchEvent(
+      new TestEvent('change', { bubbles: true, cancelable: true })
+    )
   })
 }
 
 function clickWithoutFocusing(element: TestElement) {
   act(() => {
-    element.dispatchEvent(new TestEvent('click', { bubbles: true, cancelable: true }))
+    element.dispatchEvent(
+      new TestEvent('click', { bubbles: true, cancelable: true })
+    )
   })
 }
 
@@ -149,7 +159,10 @@ describe('useFocusHandoff hook unit behavior', () => {
             ref={secondRef}
             disabled={disableSecond}
             onClick={() => {
-              handoffFocus(secondRef, [missingTabIndexHeadingRef, validHeadingRef])
+              handoffFocus(secondRef, [
+                missingTabIndexHeadingRef,
+                validHeadingRef,
+              ])
               setDisableSecond(true)
             }}
           >
@@ -283,7 +296,8 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       { id: 102, status: 'in_progress', created_at: '2026-11-18T10:05:00Z' },
     ]
     api.get = (async (url: string) => {
-      if (url === '/orders') return { data: ordersData, headers: { 'x-has-more': 'false' } } as any
+      if (url === '/orders')
+        return { data: ordersData, headers: { 'x-has-more': 'false' } } as any
       if (url === '/inventory') return { data: [] } as any
       throw new Error(`Unexpected GET ${url}`)
     }) as any
@@ -300,10 +314,10 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
 
       const cancel101 = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Cancel order #101')!
+        .find((b) => b.textContent === 'Cancel order #101')!
       const view101 = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'View order #101')!
+        .find((b) => b.textContent === 'View order #101')!
 
       await act(async () => {
         fireClick(cancel101)
@@ -311,12 +325,14 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       })
 
       assert.equal(
-        container.querySelectorAll('button').find(b => b.textContent === 'Cancel order #101'),
+        container
+          .querySelectorAll('button')
+          .find((b) => b.textContent === 'Cancel order #101'),
         undefined
       )
       assert.equal(document.activeElement, view101)
       assert.notEqual(document.activeElement, document.body)
-      assert.ok(getToastsSnapshot().some(t => t.title === 'Order cancelled'))
+      assert.ok(getToastsSnapshot().some((t) => t.title === 'Order cancelled'))
     } finally {
       unmount()
     }
@@ -332,7 +348,9 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
     api.get = (async (url: string, config?: any) => {
       if (url === '/orders') {
         const status = config?.params?.status
-        const filtered = status ? serverOrders.filter(o => o.status === status) : serverOrders
+        const filtered = status
+          ? serverOrders.filter((o) => o.status === status)
+          : serverOrders
         return { data: filtered, headers: { 'x-has-more': 'false' } } as any
       }
       if (url === '/inventory') return { data: [] } as any
@@ -342,7 +360,9 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
     api.post = (async (url: string) => {
       const match = url.match(/^\/orders\/(\d+)\/cancel$/)
       const id = Number(match![1])
-      serverOrders = serverOrders.map(o => (o.id === id ? { ...o, status: 'cancelled' } : o))
+      serverOrders = serverOrders.map((o) =>
+        o.id === id ? { ...o, status: 'cancelled' } : o
+      )
       return { data: { id, status: 'cancelled', items: [] } } as any
     }) as any
 
@@ -361,20 +381,20 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       // 1. Cancel first row (#101) -> focus moves to next row (#102)'s View button
       const cancel101 = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Cancel order #101')!
+        .find((b) => b.textContent === 'Cancel order #101')!
       await act(async () => {
         fireClick(cancel101)
         await flushAsync()
       })
       const view102 = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'View order #102')!
+        .find((b) => b.textContent === 'View order #102')!
       assert.equal(document.activeElement, view102)
 
       // 2. Cancel last remaining row (#103) -> focus moves to previous row (#102)'s View button
       const cancel103 = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Cancel order #103')!
+        .find((b) => b.textContent === 'Cancel order #103')!
       await act(async () => {
         fireClick(cancel103)
         await flushAsync()
@@ -384,7 +404,7 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       // 3. Cancel final remaining row (#102) -> focus moves to #orders-heading (tabIndex=-1)
       const cancel102 = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Cancel order #102')!
+        .find((b) => b.textContent === 'Cancel order #102')!
       await act(async () => {
         fireClick(cancel102)
         await flushAsync()
@@ -406,12 +426,20 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
         const offset = config?.params?.offset ?? 0
         if (offset === 0) {
           return {
-            data: [{ id: 101, status: 'pending', created_at: '2026-11-18T10:00:00Z' }],
+            data: [
+              {
+                id: 101,
+                status: 'pending',
+                created_at: '2026-11-18T10:00:00Z',
+              },
+            ],
             headers: { 'x-has-more': String(page1HasMore) },
           } as any
         }
         return {
-          data: [{ id: 100, status: 'pending', created_at: '2026-11-18T09:00:00Z' }],
+          data: [
+            { id: 100, status: 'pending', created_at: '2026-11-18T09:00:00Z' },
+          ],
           headers: { 'x-has-more': String(page2HasMore) },
         } as any
       }
@@ -434,21 +462,27 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
 
       const clearBtn = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Clear Filters')!
+        .find((b) => b.textContent === 'Clear Filters')!
       await act(async () => {
         fireClick(clearBtn)
         await flushAsync()
       })
       assert.equal(
-        container.querySelectorAll('button').find(b => b.textContent === 'Clear Filters'),
+        container
+          .querySelectorAll('button')
+          .find((b) => b.textContent === 'Clear Filters'),
         undefined
       )
       assert.equal(document.activeElement, statusSelect)
 
       // Pagination: Next from Page 1 onto middle Page 2 (page2HasMore = true) keeps focus on Next
       page2HasMore = true
-      const nextBtn = container.querySelectorAll('button').find(b => b.textContent === 'Next')!
-      const prevBtn = container.querySelectorAll('button').find(b => b.textContent === 'Previous')!
+      const nextBtn = container
+        .querySelectorAll('button')
+        .find((b) => b.textContent === 'Next')!
+      const prevBtn = container
+        .querySelectorAll('button')
+        .find((b) => b.textContent === 'Previous')!
 
       await act(async () => {
         fireClick(nextBtn)
@@ -526,7 +560,7 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
 
     api.delete = (async (url: string) => {
       const id = Number(url.split('/').pop())
-      usersList = usersList.filter(u => u.id !== id)
+      usersList = usersList.filter((u) => u.id !== id)
       return { data: { detail: 'User deleted' } } as any
     }) as any
 
@@ -540,11 +574,13 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       reloadGate = createDeferred<void>()
       const bobDelete = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Delete user bob')!
+        .find((b) => b.textContent === 'Delete user bob')!
 
       act(() => {
         bobDelete.focus()
-        bobDelete.dispatchEvent(new TestEvent('click', { bubbles: true, cancelable: true }))
+        bobDelete.dispatchEvent(
+          new TestEvent('click', { bubbles: true, cancelable: true })
+        )
       })
       await act(async () => {
         await flushAsync()
@@ -560,7 +596,7 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
 
       const carolDelete = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Delete user carol')!
+        .find((b) => b.textContent === 'Delete user carol')!
       assert.equal(document.activeElement, carolDelete)
 
       // 2. Delete last user (carol) -> focus moves to previous user (alice)'s Delete button
@@ -570,7 +606,7 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       })
       const aliceDelete = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Delete user alice')!
+        .find((b) => b.textContent === 'Delete user alice')!
       assert.equal(document.activeElement, aliceDelete)
 
       // 3. Delete final user (alice) -> focus moves to #existing-users-heading with tabIndex=-1
@@ -605,8 +641,10 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
 
     api.delete = (async (url: string) => {
       const id = Number(url.split('/').pop())
-      productsList = productsList.filter(p => p.id !== id)
-      return { data: useDeltaResponse ? { detail: 'Product deleted' } : {} } as any
+      productsList = productsList.filter((p) => p.id !== id)
+      return {
+        data: useDeltaResponse ? { detail: 'Product deleted' } : {},
+      } as any
     }) as any
 
     const { container, document, unmount } = render(<Inventory />)
@@ -618,7 +656,7 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       // 1. Delete middle product (Latte) via authoritative delta response -> focuses Mocha's Delete
       const latteDelete = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Delete Latte')!
+        .find((b) => b.textContent === 'Delete Latte')!
       await act(async () => {
         fireClick(latteDelete)
         await flushAsync()
@@ -626,7 +664,7 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
 
       const mochaDelete = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Delete Mocha')!
+        .find((b) => b.textContent === 'Delete Mocha')!
       assert.equal(document.activeElement, mochaDelete)
 
       // 2. Delete last product (Mocha) via reload fallback -> awaits GET /inventory, then focuses Espresso's Delete
@@ -634,7 +672,9 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       reloadGate = createDeferred<void>()
       act(() => {
         mochaDelete.focus()
-        mochaDelete.dispatchEvent(new TestEvent('click', { bubbles: true, cancelable: true }))
+        mochaDelete.dispatchEvent(
+          new TestEvent('click', { bubbles: true, cancelable: true })
+        )
       })
       await act(async () => {
         await flushAsync()
@@ -648,7 +688,7 @@ describe('Page-level focus handoff integration across Orders, Users, and Invento
       })
       const espressoDelete = container
         .querySelectorAll('button')
-        .find(b => b.textContent === 'Delete Espresso')!
+        .find((b) => b.textContent === 'Delete Espresso')!
       assert.equal(document.activeElement, espressoDelete)
 
       // 3. Delete final product (Espresso) -> focuses #products-heading with tabIndex=-1

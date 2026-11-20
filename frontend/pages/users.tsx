@@ -6,15 +6,20 @@ import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { toast } from '../components/ui/use-toast'
 import { useFocusHandoff } from '../hooks/useFocusHandoff'
+import type { UserOut } from '../types/api'
 
-export type UserItem = { id: number; username: string; is_manager?: boolean }
+export type UserItem = UserOut
 
 export const CreateUserForm = memo(function CreateUserForm({
   onCreated,
 }: {
   onCreated: () => void
 }) {
-  const [form, setForm] = useState({ username: '', password: '', is_manager: false })
+  const [form, setForm] = useState({
+    username: '',
+    password: '',
+    is_manager: false,
+  })
 
   const create = async () => {
     try {
@@ -23,7 +28,11 @@ export const CreateUserForm = memo(function CreateUserForm({
       setForm({ username: '', password: '', is_manager: false })
       onCreated()
     } catch {
-      toast({ title: 'Error', description: 'Failed to create', variant: 'destructive' })
+      toast({
+        title: 'Error',
+        description: 'Failed to create',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -33,8 +42,11 @@ export const CreateUserForm = memo(function CreateUserForm({
       <Input
         label="Username"
         value={form.username}
-        onChange={e =>
-          setForm(prev => ({ ...prev, username: (e.target as HTMLInputElement).value }))
+        onChange={(e) =>
+          setForm((prev) => ({
+            ...prev,
+            username: (e.target as HTMLInputElement).value,
+          }))
         }
       />
       <Input
@@ -42,16 +54,22 @@ export const CreateUserForm = memo(function CreateUserForm({
         type="password"
         autoComplete="new-password"
         value={form.password}
-        onChange={e =>
-          setForm(prev => ({ ...prev, password: (e.target as HTMLInputElement).value }))
+        onChange={(e) =>
+          setForm((prev) => ({
+            ...prev,
+            password: (e.target as HTMLInputElement).value,
+          }))
         }
       />
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
           checked={form.is_manager}
-          onChange={e =>
-            setForm(prev => ({ ...prev, is_manager: (e.target as HTMLInputElement).checked }))
+          onChange={(e) =>
+            setForm((prev) => ({
+              ...prev,
+              is_manager: (e.target as HTMLInputElement).checked,
+            }))
           }
         />
         <span>Manager</span>
@@ -102,22 +120,31 @@ export default function Users() {
   const deleteButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
   const { prepareFocusHandoff } = useFocusHandoff()
 
-  const registerDeleteButton = useCallback((id: number, el: HTMLButtonElement | null) => {
-    if (el) {
-      deleteButtonRefs.current.set(id, el)
-    } else {
-      deleteButtonRefs.current.delete(id)
-    }
-  }, [])
+  const registerDeleteButton = useCallback(
+    (id: number, el: HTMLButtonElement | null) => {
+      if (el) {
+        deleteButtonRefs.current.set(id, el)
+      } else {
+        deleteButtonRefs.current.delete(id)
+      }
+    },
+    []
+  )
 
   const load = useCallback(() => {
     return api
       .get('/users')
-      .then(r => {
+      .then((r) => {
         usersRef.current = r.data
         setUsers(r.data)
       })
-      .catch(() => toast({ title: 'Error', description: 'Manager only', variant: 'destructive' }))
+      .catch(() =>
+        toast({
+          title: 'Error',
+          description: 'Manager only',
+          variant: 'destructive',
+        })
+      )
   }, [])
 
   useEffect(() => {
@@ -127,29 +154,37 @@ export default function Users() {
   const del = useCallback(
     async (id: number) => {
       const snapshot = usersRef.current
-      const deletedIdx = snapshot.findIndex(u => u.id === id)
-      const nextNeighborId = deletedIdx >= 0 ? snapshot[deletedIdx + 1]?.id : undefined
-      const prevNeighborId = deletedIdx > 0 ? snapshot[deletedIdx - 1]?.id : undefined
+      const deletedIdx = snapshot.findIndex((u) => u.id === id)
+      const nextNeighborId =
+        deletedIdx >= 0 ? snapshot[deletedIdx + 1]?.id : undefined
+      const prevNeighborId =
+        deletedIdx > 0 ? snapshot[deletedIdx - 1]?.id : undefined
 
-      const handoff = prepareFocusHandoff(deleteButtonRefs.current.get(id), () => {
-        const currentUsers = usersRef.current
-        const candidates: (HTMLElement | string | null | undefined)[] = []
-        if (nextNeighborId !== undefined) {
-          candidates.push(deleteButtonRefs.current.get(nextNeighborId))
-        }
-        if (deletedIdx >= 0 && currentUsers.length > 0) {
-          const adjacentUser =
-            currentUsers[Math.min(deletedIdx, currentUsers.length - 1)]
-          if (adjacentUser) {
-            candidates.push(deleteButtonRefs.current.get(adjacentUser.id))
+      const handoff = prepareFocusHandoff(
+        deleteButtonRefs.current.get(id),
+        () => {
+          const currentUsers = usersRef.current
+          const candidates: (HTMLElement | string | null | undefined)[] = []
+          if (nextNeighborId !== undefined) {
+            candidates.push(deleteButtonRefs.current.get(nextNeighborId))
           }
+          if (deletedIdx >= 0 && currentUsers.length > 0) {
+            const adjacentUser =
+              currentUsers[Math.min(deletedIdx, currentUsers.length - 1)]
+            if (adjacentUser) {
+              candidates.push(deleteButtonRefs.current.get(adjacentUser.id))
+            }
+          }
+          if (prevNeighborId !== undefined) {
+            candidates.push(deleteButtonRefs.current.get(prevNeighborId))
+          }
+          candidates.push(
+            existingUsersHeadingRef.current,
+            '#existing-users-heading'
+          )
+          return candidates
         }
-        if (prevNeighborId !== undefined) {
-          candidates.push(deleteButtonRefs.current.get(prevNeighborId))
-        }
-        candidates.push(existingUsersHeadingRef.current, '#existing-users-heading')
-        return candidates
-      })
+      )
 
       try {
         await api.delete(`/users/${id}`)
@@ -158,7 +193,11 @@ export default function Users() {
         handoff.commit()
       } catch {
         handoff.cancel()
-        toast({ title: 'Error', description: 'Failed to delete', variant: 'destructive' })
+        toast({
+          title: 'Error',
+          description: 'Failed to delete',
+          variant: 'destructive',
+        })
       }
     },
     [load, prepareFocusHandoff]
@@ -180,7 +219,7 @@ export default function Users() {
           Existing
         </h2>
         <ul aria-labelledby="existing-users-heading" className="space-y-2">
-          {users.map(u => (
+          {users.map((u) => (
             <UserRow
               key={u.id}
               user={u}

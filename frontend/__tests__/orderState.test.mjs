@@ -6,7 +6,7 @@ import vm from 'node:vm'
 
 const sourcePath = path.resolve(
   path.dirname(new URL(import.meta.url).pathname),
-  '../lib/orderState.ts',
+  '../lib/orderState.ts'
 )
 const tsSource = fs.readFileSync(sourcePath, 'utf8')
 const transpiled = ts.transpileModule(tsSource, {
@@ -18,9 +18,10 @@ const transpiled = ts.transpileModule(tsSource, {
 
 const exportsObj = {}
 const moduleObj = { exports: exportsObj }
-vm.runInThisContext(
-  `(function(exports, module) { ${transpiled.outputText} })`,
-)(exportsObj, moduleObj)
+vm.runInThisContext(`(function(exports, module) { ${transpiled.outputText} })`)(
+  exportsObj,
+  moduleObj
+)
 
 const {
   toOrderSummary,
@@ -40,7 +41,14 @@ const {
     user_id: 1,
     status: 'pending',
     created_at: '2026-11-18T12:00:00',
-    items: [{ id: 1, product_id: 2, quantity: 3, product: { id: 2, name: 'Latte', price: 4.5, stock: 77 } }],
+    items: [
+      {
+        id: 1,
+        product_id: 2,
+        quantity: 3,
+        product: { id: 2, name: 'Latte', price: 4.5, stock: 77 },
+      },
+    ],
   }
   const summary = toOrderSummary(fullOrder)
   assert.deepEqual(summary, {
@@ -72,13 +80,19 @@ const {
   const afterHttp = reconcileCreatedOrder(initial, postResponse)
   const afterSocket = reconcileCreatedOrder(afterHttp, socketPayload)
   assert.equal(afterSocket.length, 2)
-  assert.deepEqual(afterSocket.map(o => o.id), [2, 1])
+  assert.deepEqual(
+    afterSocket.map((o) => o.id),
+    [2, 1]
+  )
 
   // Case B: Socket arrives first, then HTTP resolves (newest-first order)
   const socketFirst = reconcileCreatedOrder(initial, socketPayload)
   const httpSecond = reconcileCreatedOrder(socketFirst, postResponse)
   assert.equal(httpSecond.length, 2)
-  assert.deepEqual(httpSecond.map(o => o.id), [2, 1])
+  assert.deepEqual(
+    httpSecond.map((o) => o.id),
+    [2, 1]
+  )
 }
 
 // 3. Deduplicates local cancelOrder response and concurrent order_cancelled socket events
@@ -145,21 +159,29 @@ const {
   const withNew = reconcileCreatedOrder(
     page1,
     { id: 21, status: 'pending', created_at: '2026-11-18T10:21:00' },
-    { page: 1, pageSize: 2, hasMore: true },
+    { page: 1, pageSize: 2, hasMore: true }
   )
-  assert.deepEqual(withNew.map(o => o.id), [21, 20])
+  assert.deepEqual(
+    withNew.map((o) => o.id),
+    [21, 20]
+  )
 
   const onPage2 = reconcileCreatedOrder(
     page1,
     { id: 22, status: 'pending', created_at: '2026-11-18T10:22:00' },
-    { page: 2, pageSize: 2, hasMore: true },
+    { page: 2, pageSize: 2, hasMore: true }
   )
   assert.equal(onPage2, page1)
 
   const olderCancel = reconcileCancelledOrder(
     page1,
-    { id: 5, order_id: 5, status: 'cancelled', created_at: '2026-11-18T08:05:00' },
-    { page: 1, pageSize: 2, hasMore: true },
+    {
+      id: 5,
+      order_id: 5,
+      status: 'cancelled',
+      created_at: '2026-11-18T08:05:00',
+    },
+    { page: 1, pageSize: 2, hasMore: true }
   )
   assert.equal(olderCancel, page1)
 
@@ -167,20 +189,26 @@ const {
   const filteredAfterCancel = reconcileCancelledOrder(
     page1,
     { id: 20, status: 'cancelled' },
-    { page: 1, pageSize: 2, statusFilter: 'pending' },
+    { page: 1, pageSize: 2, statusFilter: 'pending' }
   )
-  assert.deepEqual(filteredAfterCancel.map(o => o.id), [19])
+  assert.deepEqual(
+    filteredAfterCancel.map((o) => o.id),
+    [19]
+  )
 
   // Keeps existing cancelled order when statusFilter is 'cancelled'
   const cancelledFilterMatch = reconcileCancelledOrder(
     page1,
     { id: 20, status: 'cancelled' },
-    { page: 1, pageSize: 2, statusFilter: 'cancelled' },
+    { page: 1, pageSize: 2, statusFilter: 'cancelled' }
   )
-  assert.deepEqual(cancelledFilterMatch.map(o => ({ id: o.id, status: o.status })), [
-    { id: 20, status: 'cancelled' },
-    { id: 19, status: 'pending' },
-  ])
+  assert.deepEqual(
+    cancelledFilterMatch.map((o) => ({ id: o.id, status: o.status })),
+    [
+      { id: 20, status: 'cancelled' },
+      { id: 19, status: 'pending' },
+    ]
+  )
 }
 
 // 7. Product delta merge preserves unchanged object references, appends new products, and deletes removed IDs
@@ -203,7 +231,12 @@ const {
   assert.notEqual(next[0], p1)
   // Unchanged product keeps exact object identity so React.memo rows skip re-renders
   assert.equal(next[1], p2)
-  assert.deepEqual(next[2], { id: 4, name: 'Flat White', price: 4.75, stock: 15 })
+  assert.deepEqual(next[2], {
+    id: 4,
+    name: 'Flat White',
+    price: 4.75,
+    stock: 15,
+  })
 
   // Applying the same delta again is a strict reference no-op
   const idempotent = reconcileProductsDelta(next, {
@@ -215,12 +248,15 @@ const {
 
 // 8. Validation helpers distinguish authoritative payloads from legacy/mocked payloads
 {
-  assert.deepEqual(toProductItem({ id: 1, name: 'Mocha', price: 4.8, stock: 12 }), {
-    id: 1,
-    name: 'Mocha',
-    price: 4.8,
-    stock: 12,
-  })
+  assert.deepEqual(
+    toProductItem({ id: 1, name: 'Mocha', price: 4.8, stock: 12 }),
+    {
+      id: 1,
+      name: 'Mocha',
+      price: 4.8,
+      stock: 12,
+    }
+  )
   assert.equal(toProductItem({ id: 1 }), null)
   assert.equal(toProductItem(null), null)
 
@@ -238,7 +274,7 @@ const {
     {
       updated: [{ id: 2, name: 'Latte', price: 4.5, stock: 19 }],
       deleted_ids: [9],
-    },
+    }
   )
 
   // Deduplicates split items and ignores null product on partial cancel restock
@@ -246,8 +282,18 @@ const {
     id: 42,
     status: 'cancelled',
     items: [
-      { id: 1, product_id: 2, quantity: 1, product: { id: 2, name: 'Latte', price: 4.5, stock: 25 } },
-      { id: 2, product_id: 2, quantity: 2, product: { id: 2, name: 'Latte', price: 4.5, stock: 25 } },
+      {
+        id: 1,
+        product_id: 2,
+        quantity: 1,
+        product: { id: 2, name: 'Latte', price: 4.5, stock: 25 },
+      },
+      {
+        id: 2,
+        product_id: 2,
+        quantity: 2,
+        product: { id: 2, name: 'Latte', price: 4.5, stock: 25 },
+      },
       { id: 3, product_id: 7, quantity: 1, product: null },
     ],
   })
@@ -263,7 +309,7 @@ const {
       id: 104,
       items: [{ id: 1, quantity: 2, product: { name: 'Espresso' } }],
     }),
-    null,
+    null
   )
 }
 

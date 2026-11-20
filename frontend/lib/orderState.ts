@@ -44,9 +44,11 @@ function compareOrderSummariesDesc(a: OrderSummary, b: OrderSummary): number {
 function insertDescending(
   orders: OrderSummary[],
   summary: OrderSummary,
-  pageSize?: number,
+  pageSize?: number
 ): OrderSummary[] {
-  const insertAt = orders.findIndex((o) => compareOrderSummariesDesc(summary, o) <= 0)
+  const insertAt = orders.findIndex(
+    (o) => compareOrderSummariesDesc(summary, o) <= 0
+  )
   const next =
     insertAt === -1
       ? [...orders, summary]
@@ -57,17 +59,24 @@ function insertDescending(
   return next
 }
 
-export function toOrderSummary(raw: any): OrderSummary | null {
-  if (!raw || typeof raw !== 'object' || typeof raw.id !== 'number') {
+export function toOrderSummary(raw: unknown): OrderSummary | null {
+  if (!raw || typeof raw !== 'object') {
     return null
   }
-  if (typeof raw.created_at !== 'string' || !raw.created_at) {
+  const record = raw as Record<string, unknown>
+  if (typeof record.id !== 'number') {
+    return null
+  }
+  if (typeof record.created_at !== 'string' || !record.created_at) {
     return null
   }
   return {
-    id: raw.id,
-    status: typeof raw.status === 'string' && raw.status ? raw.status : 'pending',
-    created_at: raw.created_at,
+    id: record.id,
+    status:
+      typeof record.status === 'string' && record.status
+        ? record.status
+        : 'pending',
+    created_at: record.created_at,
   }
 }
 
@@ -78,7 +87,7 @@ export function toOrderSummary(raw: any): OrderSummary | null {
 export function reconcileCreatedOrder(
   orders: OrderSummary[],
   payload: unknown,
-  options?: ReconcileOptions,
+  options?: ReconcileOptions
 ): OrderSummary[] {
   const summary = toOrderSummary(payload)
   if (!summary) {
@@ -93,7 +102,10 @@ export function reconcileCreatedOrder(
     if (options?.statusFilter && summary.status !== options.statusFilter) {
       return orders
     }
-    if (options?.dateFilter && summary.created_at.slice(0, 10) !== options.dateFilter) {
+    if (
+      options?.dateFilter &&
+      summary.created_at.slice(0, 10) !== options.dateFilter
+    ) {
       return orders
     }
     return insertDescending(orders, summary, options?.pageSize)
@@ -105,7 +117,10 @@ export function reconcileCreatedOrder(
       ? 'cancelled'
       : summary.status
 
-  if (existing.status === nextStatus && existing.created_at === summary.created_at) {
+  if (
+    existing.status === nextStatus &&
+    existing.created_at === summary.created_at
+  ) {
     return orders
   }
 
@@ -125,7 +140,7 @@ export function reconcileCreatedOrder(
 export function reconcileCancelledOrder(
   orders: OrderSummary[],
   payload: unknown,
-  options?: ReconcileOptions,
+  options?: ReconcileOptions
 ): OrderSummary[] {
   if (!payload || typeof payload !== 'object') {
     return orders
@@ -144,18 +159,28 @@ export function reconcileCancelledOrder(
   }
 
   const nextStatus =
-    typeof record.status === 'string' && record.status ? record.status : 'cancelled'
+    typeof record.status === 'string' && record.status
+      ? record.status
+      : 'cancelled'
   const incomingCreatedAt =
-    typeof record.created_at === 'string' && record.created_at ? record.created_at : null
+    typeof record.created_at === 'string' && record.created_at
+      ? record.created_at
+      : null
 
   const existingIndex = orders.findIndex((o) => o.id === rawId)
   if (existingIndex !== -1) {
     if (options?.statusFilter && nextStatus !== options.statusFilter) {
-      return [...orders.slice(0, existingIndex), ...orders.slice(existingIndex + 1)]
+      return [
+        ...orders.slice(0, existingIndex),
+        ...orders.slice(existingIndex + 1),
+      ]
     }
     const existing = orders[existingIndex]
     const resolvedCreatedAt = incomingCreatedAt ?? existing.created_at
-    if (existing.status === nextStatus && existing.created_at === resolvedCreatedAt) {
+    if (
+      existing.status === nextStatus &&
+      existing.created_at === resolvedCreatedAt
+    ) {
       return orders
     }
     const next = [...orders]
@@ -174,7 +199,10 @@ export function reconcileCancelledOrder(
     if (options?.statusFilter && nextStatus !== options.statusFilter) {
       return orders
     }
-    if (options?.dateFilter && incomingCreatedAt.slice(0, 10) !== options.dateFilter) {
+    if (
+      options?.dateFilter &&
+      incomingCreatedAt.slice(0, 10) !== options.dateFilter
+    ) {
       return orders
     }
     const candidate: OrderSummary = {
@@ -310,7 +338,10 @@ export function extractOrderStockDelta(payload: unknown): StockDelta | null {
     }
     const itemRecord = rawItem as Record<string, unknown>
     // Partial cancel restock sets `product: null` when a product row was deleted
-    if (itemRecord.product === null && typeof itemRecord.product_id === 'number') {
+    if (
+      itemRecord.product === null &&
+      typeof itemRecord.product_id === 'number'
+    ) {
       continue
     }
     const prod = toProductItem(itemRecord.product)
@@ -336,7 +367,7 @@ export function extractOrderStockDelta(payload: unknown): StockDelta | null {
  */
 export function reconcileProductsDelta<T extends ProductItem>(
   products: T[],
-  delta: StockDelta,
+  delta: StockDelta
 ): T[] {
   const deletedSet = new Set<number>(delta.deleted_ids)
   const updatedById = new Map<number, ProductItem>()
