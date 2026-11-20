@@ -91,7 +91,11 @@ export class TestNode {
   private captureListeners = new Map<string, Set<Listener>>()
   private bubbleListeners = new Map<string, Set<Listener>>()
 
-  constructor(nodeType: number, nodeName: string, ownerDocument?: TestDocument) {
+  constructor(
+    nodeType: number,
+    nodeName: string,
+    ownerDocument?: TestDocument
+  ) {
     this.nodeType = nodeType
     this.nodeName = nodeName
     this.ownerDocument = ownerDocument ?? (this as unknown as TestDocument)
@@ -108,13 +112,13 @@ export class TestNode {
   get nextSibling(): TestNode | null {
     if (!this.parentNode) return null
     const idx = this.parentNode.childNodes.indexOf(this)
-    return idx >= 0 ? this.parentNode.childNodes[idx + 1] ?? null : null
+    return idx >= 0 ? (this.parentNode.childNodes[idx + 1] ?? null) : null
   }
 
   get previousSibling(): TestNode | null {
     if (!this.parentNode) return null
     const idx = this.parentNode.childNodes.indexOf(this)
-    return idx > 0 ? this.parentNode.childNodes[idx - 1] ?? null : null
+    return idx > 0 ? (this.parentNode.childNodes[idx - 1] ?? null) : null
   }
 
   get parentElement(): TestElement | null {
@@ -141,7 +145,10 @@ export class TestNode {
     return child
   }
 
-  insertBefore<T extends TestNode>(child: T, referenceNode: TestNode | null): T {
+  insertBefore<T extends TestNode>(
+    child: T,
+    referenceNode: TestNode | null
+  ): T {
     if (!referenceNode) {
       return this.appendChild(child)
     }
@@ -320,7 +327,10 @@ const tokenizeCompoundSelector = (selector: string): string[] => {
   return tokens.filter(Boolean)
 }
 
-const matchesCompoundSelector = (el: TestElement, selector: string): boolean => {
+const matchesCompoundSelector = (
+  el: TestElement,
+  selector: string
+): boolean => {
   return selector
     .split(',')
     .map((part) => part.trim())

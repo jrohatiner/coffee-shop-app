@@ -1,12 +1,13 @@
 # AGENTS.md — Coffee Shop Ordering System
 
-This file defines repository conventions, secret management and deployment guardrails, and exact local verification commands that mirror `.github/workflows/ci.yml` and `backend/cloudbuild.yaml`.
+This file defines repository conventions, pre-commit and static analysis checks, secret management and deployment guardrails, and exact local verification commands that mirror `.github/workflows/ci.yml` and `backend/cloudbuild.yaml`.
 
 ## Repository Structure
 
-- `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and Socket.IO backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `cloudbuild.yaml`, `.env.example`).
+- `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and Socket.IO backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `cloudbuild.yaml`, `.env.example`, `pyproject.toml`).
 - `frontend/` — Next.js 14 (Pages Router, TypeScript, Tailwind CSS) frontend (`package.json`, `tsconfig.json`, `next.config.js`).
 - `.github/workflows/ci.yml` — Parallel `backend-checks` and `frontend-build` GitHub Actions jobs triggered on pushes and pull requests to `main`.
+- `.pre-commit-config.yaml` — Pre-commit hooks enforcing Ruff, Mypy, Prettier, YAML syntax, and whitespace rules.
 
 ## Secret Management & Deployment Guardrails
 
@@ -19,6 +20,53 @@ This file defines repository conventions, secret management and deployment guard
   - Do not add workflow path filters to `.github/workflows/ci.yml` that could skip required branch-protection checks.
   - Keep CI token permissions read-only (`contents: read`) unless a job explicitly publishes artifacts.
   - Remove untracked local artifacts (`backend/dev.db`, `frontend/tsconfig.tsbuildinfo`) before committing.
+
+## Pre-commit and Static Analysis Guardrails
+
+Install Git pre-commit hooks locally so every commit enforces formatting, linting, type checking, YAML syntax, and whitespace rules:
+
+```bash
+pre-commit install
+pre-commit run --all-files
+```
+
+### Python Lint, Format, and Type Checking (`backend/`)
+
+```bash
+# Check Ruff lint and formatting (configured via backend/pyproject.toml for Python 3.11)
+ruff check --config backend/pyproject.toml backend
+ruff format --check --config backend/pyproject.toml backend
+
+# Auto-fix lint issues and format
+ruff check --fix --config backend/pyproject.toml backend
+ruff format --config backend/pyproject.toml backend
+
+# Run strict Mypy static type checking
+mypy --config-file backend/pyproject.toml backend
+```
+
+### Markdown Formatting (Prettier)
+
+```bash
+prettier --check "**/*.md"
+prettier --write "**/*.md"
+```
+
+### Frontend Static Analysis, Formatting, Build, and Tests (`frontend/`)
+
+- Keep `"strict": true`, `"skipLibCheck": false`, `"noUnusedLocals": true`, and `"noUnusedParameters": true` enabled in `frontend/tsconfig.json`.
+- Avoid explicit `any` annotations; share API payload interfaces via `frontend/types/api.ts` (matching `backend/app/schemas.py`) and narrow `unknown` errors with `axios.isAxiosError`.
+
+```bash
+cd frontend
+npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
+npm run typecheck
+npm run lint
+npm run format:check
+NEXT_TELEMETRY_DISABLED=1 npm run build
+npm run test:unit
+npm run test:e2e
+```
 
 ## Environment Variables & Local Setup
 
@@ -138,14 +186,4 @@ docker run --rm -e JWT_SECRET="cloudbuild-test-jwt-secret-key" coffee-backend:lo
     PYTHONPATH=. python -m pytest -v
   fi
 '
-```
-
-### 6. Frontend Build & TypeScript Verification
-
-Note that `.gitignore` excludes `package-lock.json`; pass `--no-package-lock` when installing dependencies locally so git working trees stay clean:
-
-```bash
-cd frontend
-npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
-NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
