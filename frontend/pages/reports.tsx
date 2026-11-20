@@ -5,13 +5,11 @@ import api from '../lib/api'
 import Button from '../components/ui/Button'
 import { toast } from '../components/ui/use-toast'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs'
+import type { SalesReportOut } from '../types/api'
 
 type ReportTab = 'daily' | 'weekly' | 'monthly'
 
-export type SalesReport = {
-  id: number
-  report_type: string
-  total_sales: number
+export type SalesReport = Omit<SalesReportOut, 'created_at'> & {
   created_at?: string
 }
 
@@ -61,7 +59,8 @@ export const ReportsPagination = memo(function ReportsPagination({
   return (
     <div className="flex items-center justify-between pt-2">
       <div className="text-sm text-gray-600">
-        Page {page} · Showing {reportsCount} {reportsCount === 1 ? 'report' : 'reports'}
+        Page {page} · Showing {reportsCount}{' '}
+        {reportsCount === 1 ? 'report' : 'reports'}
       </div>
       <div className="flex items-center gap-2">
         <Button
@@ -109,7 +108,7 @@ export default function Reports() {
     const offset = (targetPage - 1) * DEFAULT_PAGE_SIZE
 
     Promise.resolve(
-      api.get(`/reports/${targetTab}`, {
+      api.get<SalesReport[]>(`/reports/${targetTab}`, {
         params: { limit: DEFAULT_PAGE_SIZE, offset },
         signal: controller.signal,
       })
@@ -134,7 +133,7 @@ export default function Reports() {
           },
         }))
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         settled = true
         if (
           isCanceledRequest(err) ||
@@ -210,7 +209,8 @@ export default function Reports() {
                 <ul className="mt-4 space-y-2">
                   {tabStates[period].items.map((r) => (
                     <li key={r.id} className="border rounded p-3">
-                      <strong>{r.report_type.toUpperCase()}</strong> — ${r.total_sales?.toFixed?.(2) ?? 0}
+                      <strong>{r.report_type.toUpperCase()}</strong> — $
+                      {r.total_sales?.toFixed?.(2) ?? 0}
                     </li>
                   ))}
                 </ul>

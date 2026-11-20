@@ -126,8 +126,11 @@ export const setAuthToken = (token: string | null): void => {
   updateStoreToken(token)
 }
 
-const syncAuthStoreFromStorage = (overrideToken?: string | null): Decoded | null => {
-  const rawToken = overrideToken !== undefined ? overrideToken : readStorageToken()
+const syncAuthStoreFromStorage = (
+  overrideToken?: string | null
+): Decoded | null => {
+  const rawToken =
+    overrideToken !== undefined ? overrideToken : readStorageToken()
   if (!rawToken) {
     if (overrideToken === null) {
       removeStorageToken()
@@ -169,15 +172,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     syncAuthStoreFromStorage()
     setHydrated(true)
 
-    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.addEventListener !== 'function'
+    ) {
       return
     }
 
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== undefined && event.key !== null && event.key !== TOKEN_STORAGE_KEY) {
+      if (
+        event.key !== undefined &&
+        event.key !== null &&
+        event.key !== TOKEN_STORAGE_KEY
+      ) {
         return
       }
-      if (event.key === TOKEN_STORAGE_KEY && 'newValue' in event && event.newValue !== undefined) {
+      if (
+        event.key === TOKEN_STORAGE_KEY &&
+        'newValue' in event &&
+        event.newValue !== undefined
+      ) {
         syncAuthStoreFromStorage(event.newValue)
       } else {
         syncAuthStoreFromStorage()
@@ -200,7 +214,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     [user, hydrated]
   )
 
-  return React.createElement(AuthContext.Provider, { value: contextValue }, children)
+  return React.createElement(
+    AuthContext.Provider,
+    { value: contextValue },
+    children
+  )
 }
 
 export const useAuth = (): Decoded | null => {
@@ -218,7 +236,9 @@ export const useAuth = (): Decoded | null => {
   )
 
   const isReady = hasProvider ? context.hydrated : true
-  const user = hasProvider ? context.user : decodeValidCachedToken(standaloneRawToken)
+  const user = hasProvider
+    ? context.user
+    : decodeValidCachedToken(standaloneRawToken)
 
   useEffect(() => {
     if (user) {

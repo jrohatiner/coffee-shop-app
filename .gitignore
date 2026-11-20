@@ -25,6 +25,7 @@ build/
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 npm-debug.log
 yarn-error.log
 
@@ -41,5 +42,7 @@ Thumbs.db
 htmlcov/
 pytest_cache/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 playwright-report/
 test-results/
