@@ -6,7 +6,6 @@ from sqlalchemy import inspect
 from sqlalchemy.engine import Connection, Engine
 
 from .database import Base, engine
-from . import models
 from .routers import auth as auth_router, dashboard, orders, inventory, reports, users
 from .websockets import init_websockets
 from .auth import get_jwt_secret
