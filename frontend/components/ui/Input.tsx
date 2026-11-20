@@ -2,14 +2,13 @@ import React from 'react'
 import { twMerge } from 'tailwind-merge'
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
-  className?: string
-  error?: string
-  errorId?: string
   label?: React.ReactNode
   labelId?: string
   labelClassName?: string
   wrapperClassName?: string
   helperText?: React.ReactNode
+  error?: string
+  errorId?: string
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
@@ -30,27 +29,25 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     },
     ref
   ) => {
-    const rawGeneratedId = React.useId()
-    const generatedId = `input-${rawGeneratedId.replace(/:/g, '')}`
+    const generatedId = React.useId()
     const inputId = id ?? generatedId
     const computedLabelId = providedLabelId ?? `${inputId}-label`
     const helperId = helperText ? `${inputId}-helper` : undefined
-    const resolvedErrorId = errorId ?? `${inputId}-error`
+    const resolvedErrorId = error ? errorId ?? `${inputId}-error` : undefined
     const hasError = Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'
+    const resolvedAriaInvalid = error ? 'true' : ariaInvalid
     const describedBy =
-      [ariaDescribedBy, error ? resolvedErrorId : undefined, helperId]
-        .filter(Boolean)
-        .join(' ') || undefined
+      [ariaDescribedBy, helperId, resolvedErrorId].filter(Boolean).join(' ') || undefined
 
     const inputElement = (
       <input
         ref={ref}
         id={inputId}
-        aria-invalid={hasError ? 'true' : ariaInvalid}
+        aria-invalid={resolvedAriaInvalid}
         aria-describedby={describedBy}
         className={twMerge(
           'border border-control rounded px-3 py-2 w-full bg-white text-gray-900 placeholder:text-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600',
-          hasError && 'border-red-700 ring-1 ring-red-700 focus-visible:outline-red-700',
+          hasError && 'border-red-700 focus-visible:outline-red-700',
           className
         )}
         {...props}
@@ -83,18 +80,6 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={resolvedErrorId}
             className="mt-1 flex items-start gap-1.5 text-sm font-medium text-red-800"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              className="mt-0.5 h-4 w-4 shrink-0 text-red-800"
-            >
-              <path
-                fillRule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
-                clipRule="evenodd"
-              />
-            </svg>
             <span>{error}</span>
           </p>
         )}

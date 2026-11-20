@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
@@ -26,6 +25,17 @@ def _serialize_order_summary(order) -> dict:
         created_at=order.created_at,
     )
     return jsonable_encoder(summary)
+
+
+def _serialize_order_stock_delta(order_out: schemas.OrderOut) -> dict:
+    seen_ids = set()
+    updated: List[schemas.ProductOut] = []
+    for item in order_out.items:
+        prod = getattr(item, "product", None)
+        if prod is not None and prod.id not in seen_ids:
+            seen_ids.add(prod.id)
+            updated.append(prod)
+    return jsonable_encoder(schemas.StockDeltaOut(updated=updated, deleted_ids=[]))
 
 
 def _orders_with_details_query(db: Session):
@@ -85,7 +95,7 @@ def _create_order_sync(
     user_id: Optional[int],
     order: schemas.OrderCreate,
     request: Request,
-) -> schemas.OrderOut:
+) -> Tuple[schemas.OrderOut, dict, dict]:
     with database.session_scope(request) as db:
         product_ids = sorted({item.product_id for item in order.items})
         product_map: Dict[int, models.Product] = {}
@@ -134,14 +144,18 @@ def _create_order_sync(
         db.flush()
 
         order_out = _serialize_order(db_order)
+        order_summary = _serialize_order_summary(order_out)
+        stock_delta = _serialize_order_stock_delta(order_out)
         db.commit()
-        return order_out
+        return order_out, order_summary, stock_delta
 
 
 def _cancel_order_sync(
     order_id: int,
+    user_id: Optional[int],
+    is_manager: bool,
     request: Request,
-) -> Tuple[schemas.OrderOut, bool]:
+) -> Tuple[schemas.OrderOut, Optional[dict], Optional[dict], bool]:
     with database.session_scope(request) as db:
         order = (
             db.query(models.Order)
@@ -151,6 +165,12 @@ def _cancel_order_sync(
         )
         if not order:
             raise HTTPException(404, "Order not found")
+
+        if not (order.user_id == user_id or is_manager):
+            raise HTTPException(403, "Not authorized to cancel this order")
+
+        if order.status in ("completed", "shipped"):
+            raise HTTPException(400, "Cannot cancel order in current status")
 
         product_ids = sorted({it.product_id for it in order.items})
         product_map: Dict[int, models.Product] = {}
@@ -169,7 +189,7 @@ def _cancel_order_sync(
             set_committed_value(it, "product", product_map.get(it.product_id))
 
         if order.status == "cancelled":
-            return _serialize_order(order), False
+            return _serialize_order(order), None, None, False
 
         restock_quantities: Dict[int, int] = {}
         for it in order.items:
@@ -186,8 +206,13 @@ def _cancel_order_sync(
         db.flush()
 
         order_out = _serialize_order(order)
+        cancelled_payload = {
+            **_serialize_order_summary(order_out),
+            "order_id": order_out.id,
+        }
+        stock_delta = _serialize_order_stock_delta(order_out)
         db.commit()
-        return order_out, True
+        return order_out, cancelled_payload, stock_delta, True
 
 
 @router.post("/", response_model=schemas.OrderOut)
@@ -197,19 +222,16 @@ async def create_order(
     request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    order_out = await run_in_threadpool(
+    order_out, order_summary, stock_delta = await run_in_threadpool(
         _create_order_sync,
         current_user.id,
         order,
         request,
     )
-    order_out = _serialize_order(db_order)
-    order_summary = _serialize_order_summary(order_out)
-    db.commit()
 
-    # Notify listeners with lightweight summary data
+    # Notify listeners with lightweight summary and stock delta data
     await sio.emit("new_order", order_summary)
-    await sio.emit("stock_update")
+    await sio.emit("stock_update", stock_delta)
 
     return order_out
 
@@ -220,62 +242,16 @@ async def cancel_order(
     request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    order_out, did_cancel = await run_in_threadpool(
+    order_out, cancelled_payload, stock_delta, did_cancel = await run_in_threadpool(
         _cancel_order_sync,
         order_id,
+        current_user.id,
+        bool(current_user.is_manager),
         request,
     )
     if did_cancel:
-        await sio.emit("stock_update")
-        await sio.emit("order_cancelled", {"order_id": order_out.id})
-    if not order:
-        raise HTTPException(404, "Order not found")
-
-    if not (order.user_id == current_user.id or current_user.is_manager):
-        raise HTTPException(403, "Not authorized to cancel this order")
-
-    if order.status in ("completed", "shipped"):
-        raise HTTPException(400, "Cannot cancel order in current status")
-
-    product_ids = sorted({it.product_id for it in order.items})
-    product_map: Dict[int, models.Product] = {}
-    if product_ids:
-        product_query = (
-            db.query(models.Product)
-            .filter(models.Product.id.in_(product_ids))
-            .order_by(models.Product.id)
-        )
-        if order.status != "cancelled":
-            product_query = product_query.with_for_update()
-        products = product_query.all()
-        product_map = {prod.id: prod for prod in products}
-
-    for it in order.items:
-        set_committed_value(it, "product", product_map.get(it.product_id))
-
-    if order.status == "cancelled":
-        return _serialize_order(order)
-
-    restock_quantities: Dict[int, int] = {}
-    for it in order.items:
-        restock_quantities[it.product_id] = (
-            restock_quantities.get(it.product_id, 0) + it.quantity
-        )
-
-    for product_id, total_quantity in restock_quantities.items():
-        prod = product_map.get(product_id)
-        if prod:
-            prod.stock += total_quantity
-
-    order.status = "cancelled"
-    db.flush()
-
-    order_out = _serialize_order(order)
-    cancelled_payload = {**_serialize_order_summary(order_out), "order_id": order_out.id}
-    db.commit()
-
-    await sio.emit("stock_update")
-    await sio.emit("order_cancelled", cancelled_payload)
+        await sio.emit("stock_update", stock_delta)
+        await sio.emit("order_cancelled", cancelled_payload)
 
     return order_out
 

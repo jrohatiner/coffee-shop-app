@@ -64,9 +64,11 @@ const scheduleTimer = (id: string, record: TimerRecord) => {
     return
   }
   record.startedAt = Date.now()
-  record.timeoutId = setTimeout(() => {
+  const timeout = setTimeout(() => {
     dismissToast(id)
   }, record.remainingMs)
+  ;(timeout as any)?.unref?.()
+  record.timeoutId = timeout
 }
 
 export const subscribeToasts = (listener: () => void) => {
@@ -163,7 +165,12 @@ export const clearToasts = () => {
   }
 }
 
-export const toast = ({ title, description, variant = 'default', duration }: ToastInput) => {
+export const toast = ({
+  title,
+  description,
+  variant = 'default',
+  duration,
+}: ToastInput) => {
   const now = Date.now()
   const resolvedDuration =
     duration ?? (variant === 'destructive' ? DESTRUCTIVE_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS)

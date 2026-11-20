@@ -248,7 +248,20 @@ def test_create_and_cancel_emit_summary_events_and_update_stock(test_context):
 
     # Check emitted Socket.IO events on create
     create_events = [(call.args[0], call.args[1] if len(call.args) > 1 else None) for call in emit_mock.call_args_list]
-    assert ("stock_update", None) in create_events
+    assert (
+        "stock_update",
+        {
+            "updated": [
+                {
+                    "id": espresso.id,
+                    "name": "Espresso",
+                    "price": 3.0,
+                    "stock": 96,
+                }
+            ],
+            "deleted_ids": [],
+        },
+    ) in create_events
     new_order_payloads = [payload for event, payload in create_events if event == "new_order"]
     assert len(new_order_payloads) == 1
     assert new_order_payloads[0] == {
@@ -272,7 +285,20 @@ def test_create_and_cancel_emit_summary_events_and_update_stock(test_context):
 
     # Check emitted Socket.IO events on cancel
     cancel_events = [(call.args[0], call.args[1] if len(call.args) > 1 else None) for call in emit_mock.call_args_list]
-    assert ("stock_update", None) in cancel_events
+    assert (
+        "stock_update",
+        {
+            "updated": [
+                {
+                    "id": espresso.id,
+                    "name": "Espresso",
+                    "price": 3.0,
+                    "stock": 100,
+                }
+            ],
+            "deleted_ids": [],
+        },
+    ) in cancel_events
     cancelled_payloads = [payload for event, payload in cancel_events if event == "order_cancelled"]
     assert len(cancelled_payloads) == 1
     assert cancelled_payloads[0]["id"] == created["id"]

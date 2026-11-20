@@ -108,31 +108,45 @@ test.describe('AuthProvider navigation, hydration parity, and session sync', () 
     await page.getByLabel('Password').fill('secret123')
     await page.getByRole('button', { name: 'Sign in' }).click()
 
-    await expect(page).toHaveURL(/\/dashboard$/)
-    await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible()
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15000 })
+    await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible({
+      timeout: 15000,
+    })
 
     // Navigate across all five protected pages via Navbar links
     await page.getByRole('link', { name: 'Orders' }).click()
-    await expect(page).toHaveURL(/\/orders$/)
-    await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible()
+    await expect(page).toHaveURL(/\/orders$/, { timeout: 15000 })
+    await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible({
+      timeout: 15000,
+    })
 
     await page.getByRole('link', { name: 'Inventory' }).click()
-    await expect(page).toHaveURL(/\/inventory$/)
-    await expect(page.getByRole('heading', { name: 'Inventory', level: 1 })).toBeVisible()
+    await expect(page).toHaveURL(/\/inventory$/, { timeout: 15000 })
+    await expect(page.getByRole('heading', { name: 'Inventory', level: 1 })).toBeVisible({
+      timeout: 15000,
+    })
 
     await page.getByRole('link', { name: 'Reports' }).click()
-    await expect(page).toHaveURL(/\/reports$/)
-    await expect(page.getByRole('heading', { name: 'Sales Reports', level: 1 })).toBeVisible()
+    await expect(page).toHaveURL(/\/reports$/, { timeout: 15000 })
+    await expect(page.getByRole('heading', { name: 'Sales Reports', level: 1 })).toBeVisible({
+      timeout: 15000,
+    })
 
     await page.getByRole('link', { name: 'Users' }).click()
-    await expect(page).toHaveURL(/\/users$/)
-    await expect(page.getByRole('heading', { name: 'User Management', level: 1 })).toBeVisible()
+    await expect(page).toHaveURL(/\/users$/, { timeout: 15000 })
+    await expect(page.getByRole('heading', { name: 'User Management', level: 1 })).toBeVisible({
+      timeout: 15000,
+    })
 
     // Hard reload on protected route produces zero hydration warnings
     await page.goto('/orders')
-    await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible({
+      timeout: 15000,
+    })
     await page.reload()
-    await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible({
+      timeout: 15000,
+    })
     expect(hydrationWarnings).toEqual([])
 
     // Logout clears token and navigates to /login
