@@ -1,6 +1,7 @@
 import os
 import tempfile
 from datetime import date, datetime, time, timedelta
+from unittest.mock import patch
 
 # Point app.database at an isolated temp SQLite database during standalone import
 _IMPORT_DB = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -10,7 +11,7 @@ os.environ.setdefault("DATABASE_URL", f"sqlite:///{_IMPORT_DB.name}")
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import Column, Index, Integer, MetaData, String, Table, create_engine, event, inspect, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -40,8 +41,9 @@ def db_env(tmp_path):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-    Base.metadata.create_all(bind=engine)
-    ensure_indexes(bind_engine=engine)
+    with engine.begin() as conn:
+        Base.metadata.create_all(bind=conn)
+        ensure_indexes(bind_engine=conn)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     def override_get_db():
@@ -180,9 +182,42 @@ def test_existing_database_receives_missing_indexes_on_startup(tmp_path):
     }
     assert ("status", "created_at") not in before_orders
 
-    # Startup ensure_indexes creates all missing indexes and is idempotent on repeat runs
-    ensure_indexes(bind_engine=legacy_engine)
-    ensure_indexes(bind_engine=legacy_engine)
+    # Startup ensure_indexes creates all missing indexes on 1 connection checkout
+    # and is idempotent on repeat runs (1 checkout, 19 reflection queries, 0 DDL)
+    backfill_checkouts = []
+    backfill_statements = []
+
+    def _on_checkout(_dbapi_conn, _conn_record, _conn_proxy):
+        backfill_checkouts.append(1)
+
+    def _on_execute(_conn, _cursor, statement, _params, _context, _executemany):
+        backfill_statements.append(statement)
+
+    event.listen(legacy_engine, "checkout", _on_checkout)
+    event.listen(legacy_engine, "before_cursor_execute", _on_execute)
+    try:
+        ensure_indexes(bind_engine=legacy_engine)
+        assert len(backfill_checkouts) == 1
+        created_ddl = [
+            stmt
+            for stmt in backfill_statements
+            if stmt.lstrip().upper().startswith(("CREATE INDEX", "CREATE UNIQUE INDEX"))
+        ]
+        assert len(created_ddl) == 13
+
+        backfill_checkouts.clear()
+        backfill_statements.clear()
+
+        ensure_indexes(bind_engine=legacy_engine)
+        assert len(backfill_checkouts) == 1
+        assert len(backfill_statements) == 19
+        assert not any(
+            stmt.lstrip().upper().startswith(("CREATE INDEX", "CREATE UNIQUE INDEX"))
+            for stmt in backfill_statements
+        )
+    finally:
+        event.remove(legacy_engine, "checkout", _on_checkout)
+        event.remove(legacy_engine, "before_cursor_execute", _on_execute)
 
     inspector = inspect(legacy_engine)
     assert {tuple(i["column_names"]) for i in inspector.get_indexes("orders")} >= {
@@ -206,6 +241,119 @@ def test_existing_database_receives_missing_indexes_on_startup(tmp_path):
         assert count == 1
 
     legacy_engine.dispose()
+
+
+def test_warm_startup_and_ensure_indexes_use_single_checkout_and_batched_reflection(
+    tmp_path,
+):
+    db_path = tmp_path / "warm_startup.db"
+    warm_engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
+    )
+    with warm_engine.begin() as conn:
+        Base.metadata.create_all(bind=conn)
+        ensure_indexes(bind_engine=conn)
+
+    checkouts = []
+    statements = []
+
+    @event.listens_for(warm_engine, "checkout")
+    def _record_checkout(_dbapi_conn, _conn_record, _conn_proxy):
+        checkouts.append(1)
+
+    @event.listens_for(warm_engine, "before_cursor_execute")
+    def _record_statement(_conn, _cursor, statement, _params, _context, _executemany):
+        statements.append(statement)
+
+    # 1. Standalone ensure_indexes(bind_engine=Engine) -> 1 checkout, 19 reflection queries
+    ensure_indexes(bind_engine=warm_engine)
+    assert len(checkouts) == 1
+    assert len(statements) == 19
+    assert not any(
+        stmt.lstrip().upper().startswith("CREATE") for stmt in statements
+    )
+
+    # 2. Shared startup transaction (create_all + ensure_indexes on Connection) -> 1 checkout
+    checkouts.clear()
+    statements.clear()
+    with warm_engine.begin() as conn:
+        Base.metadata.create_all(bind=conn)
+        ensure_indexes(bind_engine=conn)
+
+    assert len(checkouts) == 1
+    assert len(statements) == 24
+    assert not any(
+        stmt.lstrip().upper().startswith("CREATE") for stmt in statements
+    )
+
+    warm_engine.dispose()
+
+
+def test_ensure_indexes_handles_missing_tables_unnamed_and_duplicate_indexes(tmp_path):
+    empty_db = tmp_path / "empty.db"
+    empty_engine = create_engine(
+        f"sqlite:///{empty_db}",
+        connect_args={"check_same_thread": False},
+    )
+
+    checkouts = []
+    statements = []
+    event.listen(empty_engine, "checkout", lambda *_args: checkouts.append(1))
+    event.listen(
+        empty_engine,
+        "before_cursor_execute",
+        lambda _c, _cur, stmt, *_a: statements.append(stmt),
+    )
+
+    # Calling ensure_indexes before tables exist skips absent tables without raising
+    ensure_indexes(bind_engine=empty_engine)
+    assert len(checkouts) == 1
+    assert len(statements) == 1
+
+    # Verify unnamed index fallback and same-pass duplicate named index protection
+    custom_meta = MetaData()
+    sample_table = Table(
+        "sample_items",
+        custom_meta,
+        Column("id", Integer, primary_key=True),
+        Column("code", String),
+        Column("label", String),
+    )
+    unnamed_idx = Index(None, sample_table.c.code)
+    dup_idx_one = Index("ix_sample_items_label", sample_table.c.label)
+    dup_idx_two = Index("ix_sample_items_label", sample_table.c.label)
+    sample_table.indexes.update({unnamed_idx, dup_idx_one, dup_idx_two})
+
+    with empty_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE sample_items (id INTEGER PRIMARY KEY, code VARCHAR, label VARCHAR)"
+            )
+        )
+
+    checkouts.clear()
+    statements.clear()
+    with patch.object(Base, "metadata", custom_meta):
+        with empty_engine.connect() as conn:
+            ensure_indexes(bind_engine=conn)
+
+    assert len(checkouts) == 1
+    create_index_stmts = [
+        stmt
+        for stmt in statements
+        if stmt.lstrip().upper().startswith("CREATE INDEX")
+    ]
+    assert len(create_index_stmts) == 2
+
+    reflected_cols = {
+        tuple(idx["column_names"])
+        for idx in inspect(empty_engine).get_indexes("sample_items")
+    }
+    assert ("code",) in reflected_cols
+    assert ("label",) in reflected_cols
+
+    empty_engine.dispose()
 
 
 def test_indexes_compile_cleanly_for_postgresql_and_sqlite():
