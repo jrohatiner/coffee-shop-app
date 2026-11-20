@@ -27,8 +27,6 @@ node_modules/
 out/
 npm-debug.log
 yarn-error.log
-package-lock.json
-yarn.lock
 
 # OS Files
 .DS_Store
