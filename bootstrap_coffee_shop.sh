@@ -334,7 +334,7 @@ class SalesReport(Base):
 EOF
 
 cat > backend/app/schemas.py << 'EOF'
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 
@@ -347,7 +347,7 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: int
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProductBase(BaseModel):
     name: str
@@ -358,7 +358,7 @@ class ProductCreate(ProductBase): pass
 
 class ProductOut(ProductBase):
     id: int
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderItemBase(BaseModel):
     product_id: int
@@ -369,7 +369,7 @@ class OrderItemCreate(OrderItemBase): pass
 class OrderItemOut(OrderItemBase):
     id: int
     product: ProductOut
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderBase(BaseModel):
     user_id: int
@@ -382,14 +382,14 @@ class OrderOut(OrderBase):
     id: int
     created_at: datetime
     items: List[OrderItemOut]
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SalesReportOut(BaseModel):
     id: int
     report_type: str
     total_sales: float
     created_at: datetime
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class Token(BaseModel):
     access_token: str
