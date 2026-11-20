@@ -1,80 +1,221 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import api from '../lib/api'
+import Button from '../components/ui/Button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs'
 import FormErrorBanner from '../components/ui/FormErrorBanner'
 
 type ReportTab = 'daily' | 'weekly' | 'monthly'
 
+export type SalesReport = {
+  id: number
+  report_type: string
+  total_sales: number
+  created_at?: string
+}
+
+type TabPageState = {
+  items: SalesReport[]
+  page: number
+  hasMore: boolean
+  loadedPage: number | null
+  error: string | null
+}
+
 const REPORT_TABS: readonly ReportTab[] = ['daily', 'weekly', 'monthly']
+const DEFAULT_PAGE_SIZE = 20
 
 const isReportTab = (value: string): value is ReportTab =>
   REPORT_TABS.some((period) => period === value)
 
+const createInitialTabStates = (): Record<ReportTab, TabPageState> => ({
+  daily: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
+  weekly: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
+  monthly: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
+})
+
+const isCanceledRequest = (err: unknown): boolean => {
+  if (!err || typeof err !== 'object') return false
+  const record = err as Record<string, unknown>
+  return (
+    record.name === 'CanceledError' ||
+    record.name === 'AbortError' ||
+    record.code === 'ERR_CANCELED' ||
+    record.__CANCEL__ === true
+  )
+}
+
+export const ReportsPagination = memo(function ReportsPagination({
+  page,
+  reportsCount,
+  hasMore,
+  onPrevPage,
+  onNextPage,
+}: {
+  page: number
+  reportsCount: number
+  hasMore: boolean
+  onPrevPage: () => void
+  onNextPage: () => void
+}) {
+  return (
+    <div className="flex items-center justify-between pt-2">
+      <div className="text-sm text-gray-700">
+        Page {page} · Showing {reportsCount} {reportsCount === 1 ? 'report' : 'reports'}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          disabled={page <= 1}
+          className="disabled:opacity-50 disabled:pointer-events-none"
+          onClick={onPrevPage}
+        >
+          Previous
+        </Button>
+        <Button
+          disabled={!hasMore}
+          className="disabled:opacity-50 disabled:pointer-events-none"
+          onClick={onNextPage}
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  )
+})
+
 export default function Reports() {
   const user = useAuth()
-  const username = user?.sub ?? null
+  const userKey = user ? (user.sub ?? true) : null
   const [tab, setTab] = useState<ReportTab>('daily')
-  const [reportState, setReportState] = useState<{
-    loadedTab: ReportTab | null
-    rows: any[]
-    error: string | null
-  }>({
-    loadedTab: null,
-    rows: [],
-    error: null,
-  })
+  const [tabStates, setTabStates] = useState<Record<ReportTab, TabPageState>>(
+    createInitialTabStates
+  )
+
+  const requestSeqRef = useRef(0)
+  const tabStatesRef = useRef(tabStates)
+  tabStatesRef.current = tabStates
+
+  const activePage = tabStates[tab].page
 
   useEffect(() => {
-    if (!username) return
-    let active = true
-    setReportState((prev) =>
-      prev.loadedTab === null && prev.rows.length === 0 && prev.error === null
-        ? prev
-        : { loadedTab: null, rows: [], error: null }
-    )
+    const seq = ++requestSeqRef.current
+    if (!userKey) return
+    if (tabStatesRef.current[tab].loadedPage === activePage) return
 
-    api
-      .get(`/reports/${tab}`)
-      .then((r) => {
-        if (!active) return
-        setReportState({
-          loadedTab: tab,
-          rows: Array.isArray(r.data) ? r.data : [],
+    let settled = false
+    const controller = new AbortController()
+    const targetTab = tab
+    const targetPage = activePage
+    const offset = (targetPage - 1) * DEFAULT_PAGE_SIZE
+
+    if (tabStatesRef.current[targetTab].error !== null) {
+      setTabStates((prev) => ({
+        ...prev,
+        [targetTab]: {
+          ...prev[targetTab],
           error: null,
-        })
+        },
+      }))
+    }
+
+    Promise.resolve(
+      api.get(`/reports/${targetTab}`, {
+        params: { limit: DEFAULT_PAGE_SIZE, offset },
+        signal: controller.signal,
+      })
+    )
+      .then((r) => {
+        settled = true
+        if (controller.signal.aborted || seq !== requestSeqRef.current) return
+        const data: SalesReport[] = Array.isArray(r?.data) ? r.data : []
+        const headerHasMore =
+          r?.headers?.['x-has-more'] ?? r?.headers?.['X-Has-More']
+        const more =
+          headerHasMore !== undefined
+            ? String(headerHasMore).toLowerCase() === 'true'
+            : data.length === DEFAULT_PAGE_SIZE
+        setTabStates((prev) => ({
+          ...prev,
+          [targetTab]: {
+            ...prev[targetTab],
+            items: data,
+            hasMore: more,
+            loadedPage: targetPage,
+            error: null,
+          },
+        }))
       })
       .catch((err: any) => {
-        if (!active) return
+        settled = true
+        if (
+          isCanceledRequest(err) ||
+          controller.signal.aborted ||
+          seq !== requestSeqRef.current
+        ) {
+          return
+        }
         const detail = err?.response?.data?.detail
-        setReportState({
-          loadedTab: tab,
-          rows: [],
-          error:
-            typeof detail === 'string' && detail.trim()
-              ? detail
-              : `Failed to load ${tab} sales reports`,
-        })
+        setTabStates((prev) => ({
+          ...prev,
+          [targetTab]: {
+            ...prev[targetTab],
+            items: [],
+            hasMore: false,
+            loadedPage: null,
+            error:
+              typeof detail === 'string' && detail.trim()
+                ? detail
+                : `Failed to load ${targetTab} sales reports`,
+          },
+        }))
       })
 
     return () => {
-      active = false
+      if (!settled) {
+        controller.abort()
+      }
     }
-  }, [username, tab])
+  }, [userKey, tab, activePage])
+
+  const handleTabChange = useCallback((v: string) => {
+    if (isReportTab(v)) {
+      setTab(v)
+    }
+  }, [])
+
+  const handlePrevPage = useCallback(() => {
+    setTabStates((prev) => {
+      const current = prev[tab]
+      const nextPage = Math.max(1, current.page - 1)
+      if (nextPage === current.page) return prev
+      return {
+        ...prev,
+        [tab]: {
+          ...current,
+          page: nextPage,
+          error: null,
+        },
+      }
+    })
+  }, [tab])
+
+  const handleNextPage = useCallback(() => {
+    setTabStates((prev) => {
+      const current = prev[tab]
+      if (!current.hasMore) return prev
+      return {
+        ...prev,
+        [tab]: {
+          ...current,
+          page: current.page + 1,
+          error: null,
+        },
+      }
+    })
+  }, [tab])
 
   if (!user) return null
-
-  const isLoading = reportState.loadedTab !== tab
-  const visibleReports = isLoading ? [] : reportState.rows
-  const visibleError = isLoading ? null : reportState.error
-
-  const handleTabChange = (value: string) => {
-    if (isReportTab(value) && value !== tab) {
-      setTab(value)
-      setReportState({ loadedTab: null, rows: [], error: null })
-    }
-  }
 
   return (
     <div className="p-6">
@@ -85,37 +226,62 @@ export default function Reports() {
           <TabsTrigger value="weekly">Weekly</TabsTrigger>
           <TabsTrigger value="monthly">Monthly</TabsTrigger>
         </TabsList>
-        {REPORT_TABS.map((period) => (
-          <TabsContent key={period} value={period}>
-            {tab === period && (
-              <>
-                {isLoading && (
-                  <div role="status" aria-live="polite" className="mt-4 text-sm text-gray-700">
-                    Loading {period} sales reports...
-                  </div>
-                )}
-                {!isLoading && visibleError && (
-                  <FormErrorBanner className="mt-4" message={visibleError} />
-                )}
-                {!isLoading && !visibleError && visibleReports.length === 0 && (
-                  <div role="status" aria-live="polite" className="mt-4 text-sm text-gray-700">
-                    No {period} sales reports available.
-                  </div>
-                )}
-                {!isLoading && !visibleError && visibleReports.length > 0 && (
-                  <ul className="mt-4 space-y-2">
-                    {visibleReports.map((r) => (
+        {REPORT_TABS.map((period) => {
+          const periodState = tabStates[period]
+          const isLoading =
+            periodState.loadedPage !== periodState.page && periodState.error === null
+          const visibleItems =
+            isLoading || periodState.error ? [] : periodState.items
+
+          return (
+            <TabsContent key={period} value={period}>
+              {tab === period && (
+                <>
+                  {isLoading && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="mt-4 text-sm text-gray-700"
+                    >
+                      Loading {period} sales reports...
+                    </div>
+                  )}
+                  {!isLoading && periodState.error && (
+                    <FormErrorBanner className="mt-4" message={periodState.error} />
+                  )}
+                  {!isLoading && !periodState.error && visibleItems.length === 0 && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="mt-4 text-sm text-gray-700"
+                    >
+                      No {period} sales reports available.
+                    </div>
+                  )}
+                  <ul
+                    className={
+                      visibleItems.length > 0 ? 'mt-4 space-y-2' : 'hidden'
+                    }
+                  >
+                    {visibleItems.map((r) => (
                       <li key={r.id} className="border rounded p-3">
                         <strong>{r.report_type.toUpperCase()}</strong> — $
                         {r.total_sales?.toFixed?.(2) ?? 0}
                       </li>
                     ))}
                   </ul>
-                )}
-              </>
-            )}
-          </TabsContent>
-        ))}
+                  <ReportsPagination
+                    page={periodState.page}
+                    reportsCount={visibleItems.length}
+                    hasMore={!isLoading && !periodState.error && periodState.hasMore}
+                    onPrevPage={handlePrevPage}
+                    onNextPage={handleNextPage}
+                  />
+                </>
+              )}
+            </TabsContent>
+          )
+        })}
       </Tabs>
     </div>
   )

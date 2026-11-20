@@ -118,7 +118,7 @@ test.describe('Unified live-region toasts and async route banners', () => {
       releaseWeekly = resolve
     })
 
-    await page.route('http://localhost:8000/reports/daily', async (route) => {
+    await page.route('http://localhost:8000/reports/daily*', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -126,7 +126,7 @@ test.describe('Unified live-region toasts and async route banners', () => {
       })
     })
 
-    await page.route('http://localhost:8000/reports/weekly', async (route) => {
+    await page.route('http://localhost:8000/reports/weekly*', async (route) => {
       await holdWeekly
       await route.fulfill({
         status: 503,
@@ -135,7 +135,7 @@ test.describe('Unified live-region toasts and async route banners', () => {
       })
     })
 
-    await page.route('http://localhost:8000/reports/monthly', async (route) => {
+    await page.route('http://localhost:8000/reports/monthly*', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
