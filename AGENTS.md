@@ -1,22 +1,29 @@
 # AGENTS.md — Coffee Shop Ordering System
 
-This file defines repository conventions, pre-commit guardrails, container release/provenance guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
+This file defines repository conventions, pre-commit guardrails, secret management and Cloud Run deployment guardrails, container release/SLSA provenance guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
 
 ## Repository Structure & Architecture
 
-- `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and `python-socketio` ASGI backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`, `pyproject.toml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
+- `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and `python-socketio` ASGI backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`, `.env.example`, `pyproject.toml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
   - REST routers in `backend/app/main.py`: `/auth`, `/dashboard`, `/orders`, `/inventory`, `/reports`, `/users`.
   - Socket.IO ASGI endpoint in `backend/app/websockets.py`: mounted at `/ws` with `socketio_path='/ws/socket.io'`.
 - `frontend/` — Next.js `14.1.0` (Pages Router, TypeScript, Tailwind CSS) frontend (`package.json`, `tsconfig.json`, `next.config.js`, `firebase.json`, `cloudbuild.yaml`) configured for static HTML export (`output: 'export'`, `images: { unoptimized: true }`) into `frontend/out` and deployed to Firebase Hosting (`cleanUrls: true`).
 - `.github/workflows/ci.yml` — Parallel `backend-checks` and `frontend-build` GitHub Actions jobs triggered on pushes and pull requests to `main`.
 - `.github/workflows/deploy-frontend.yml` — Frontend static export verification (`verify`) and Workload Identity Federation deployment with SHA-256 manifest provenance attestation (`deploy`).
+- `.pre-commit-config.yaml` — Pre-commit hooks enforcing Ruff, Mypy, Prettier, YAML syntax, and whitespace rules.
 
-## Environment Variables
+## Environment Variables & Local Setup
 
 ### Backend
 
-- `JWT_SECRET`: **Required** whenever `app.auth` or `app.main` is imported. Must be at least 8 characters and must not match insecure placeholders (`dev_secret_key`, `secret`, `password`, `changeme`, `replace-me`, `replace-with-strong-random`).
-- `DATABASE_URL`: Optional for local runs and smoke checks. When unset or blank, `backend/app/database.py` defaults to `sqlite:///./dev.db` with `check_same_thread=False`. Set `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/coffee_test` to target PostgreSQL.
+- `JWT_SECRET`: **Required** whenever `app.auth` or `app.main` is imported. Locally, it must be at least 8 characters and must not match insecure placeholders (`dev_secret_key`, `secret`, `password`, `changeme`, `replace-me`, `replace-with-strong-random`). In production (`APP_ENV=production` or `K_SERVICE` set), it must be at least 32 characters and bound from Secret Manager.
+- `DATABASE_URL`: Optional for local runs and smoke checks. When unset or blank locally, `backend/app/database.py` defaults to `sqlite:///./dev.db` with `check_same_thread=False`. Set `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/coffee_test` to target PostgreSQL locally; in production it is required and bound from Secret Manager.
+
+Copy the tracked template `backend/.env.example` to `backend/.env` (which remains ignored by Git) for local development:
+
+```bash
+cp backend/.env.example backend/.env
+```
 
 ### Frontend
 
@@ -24,72 +31,51 @@ This file defines repository conventions, pre-commit guardrails, container relea
 - `NEXT_PUBLIC_SOCKET_URL`: Optional direct origin for Socket.IO (`frontend/hooks/useSocket.ts`) to connect directly to Cloud Run (`coffee-backend`) when CDN rewrites strip WebSocket `Upgrade` headers. Falls back to `NEXT_PUBLIC_API_URL` (or same-origin `/ws/socket.io` when relative/unset in production).
 - `FIREBASE_PROJECT_ID`: Explicit target Firebase project passed via `--project "$FIREBASE_PROJECT_ID"` (`frontend/.firebaserc` intentionally omits hardcoded project aliases).
 
-## Pre-commit and Local Guardrails
+## Secret Management, Release & Provenance Guardrails
+
+- **No Plaintext Secrets in Build Configs**: `backend/cloudbuild.yaml` and `bootstrap_coffee_shop.sh` must never define plaintext password or signing-key substitutions (such as `_DB_PASS` or `_JWT_SECRET`) or `'replace-me'` defaults.
+- **Cloud Run Secret Manager Bindings**: `DATABASE_URL` and `JWT_SECRET` are bound at runtime on Cloud Run via `--set-secrets=DATABASE_URL=${_DB_URL_SECRET}:latest,JWT_SECRET=${_JWT_SECRET_NAME}:latest`. Do not inject secret payloads into Cloud Build `availableSecrets` or `secretEnv`.
+- **Dedicated Least-Privilege Identities**: Cloud Build executes under `projects/$PROJECT_ID/serviceAccounts/${_BUILD_SERVICE_ACCOUNT}` with `options.logging: CLOUD_LOGGING_ONLY`, and Cloud Run executes under `--service-account=${_RUN_SERVICE_ACCOUNT}`.
+- **Custom Delimiter for Non-Secret Env Vars**: `gcloud run deploy` passes non-secret environment variables using `--set-env-vars=^|^INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE}|APP_ENV=production` so colons in Cloud SQL connection names never collide with `gcloud` argument delimiters.
+- **Production Startup Guards**: When `APP_ENV=production` or `K_SERVICE` is set, `app.auth` and `app.database` reject placeholder values (`replace-me`, `dev_secret_key`, `YOUR_PROJECT_ID`, `YOUR_DB_PASSWORD`, `local-dev-secret-not-for-production`), unconfigured `DATABASE_URL` / `INSTANCE_UNIX_SOCKET` values, and any `JWT_SECRET` shorter than 32 characters with `RuntimeError`.
+- **No Mutable `:latest` Image Tags & `@sha256:` Digest Deployment**: Every build in `backend/cloudbuild.yaml` tags the image with `$BUILD_ID` (and `$COMMIT_SHA` whenever Git metadata is present), resolves the pushed `@sha256:` digest from Artifact Registry (`RepoDigests`) into `/workspace/image-digest.txt`, and deploys that immutable `@sha256:` digest to Cloud Run (keeping `$BUILD_ID` unconditional so manual `gcloud builds submit` works when `$COMMIT_SHA` is empty).
+- **SLSA Build Provenance & Filtered Build Context**: `backend/cloudbuild.yaml` registers `${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID` in top-level `images` with `options.requestedVerifyOption: VERIFIED` (note that full SLSA Level 3 source provenance requires trigger-driven builds from connected repositories). `backend/Dockerfile` pins `python:3.11-slim` by `@sha256:` digest, and `backend/.dockerignore` excludes `cloudbuild.yaml`, `Dockerfile`, `seed.py`, `app/routers/_init_.py`, `tests/`, `.env*`, `.venv/`, `__pycache__/`, and `*.db` from the production container image.
+
+## Pre-commit and Static Analysis Guardrails
 
 Install Git pre-commit hooks locally so every commit enforces formatting, linting, type checking, YAML syntax, and whitespace rules:
 
 ```bash
 pre-commit install
-```
-
-Run the full pre-commit suite across all tracked files:
-
-```bash
 pre-commit run --all-files
 ```
 
-### Python Lint and Format (Ruff)
-
-Run Ruff lint and format checks targeting `backend/` (configured via `backend/pyproject.toml` for Python 3.11):
+### Python Lint, Format, and Type Checking (`backend/`)
 
 ```bash
 ruff check --config backend/pyproject.toml backend
 ruff format --check --config backend/pyproject.toml backend
-```
-
-Apply automatic lint fixes and formatting:
-
-```bash
-ruff check --fix --config backend/pyproject.toml backend
-ruff format --config backend/pyproject.toml backend
-```
-
-### Python Static Type Checking (Mypy)
-
-Run strict Mypy type checks against `backend/`:
-
-```bash
 mypy --config-file backend/pyproject.toml backend
 ```
 
 ### Markdown Formatting (Prettier)
-
-Check or format Markdown files with Prettier (scoped to `*.md` files):
 
 ```bash
 prettier --check "**/*.md"
 prettier --write "**/*.md"
 ```
 
-## Backend Container & Cloud Build Guidelines
-
-The backend service (`backend/`) builds an immutable Docker image, runs an ephemeral smoke/test gate before pushing, and deploys to Cloud Run via Google Cloud Build (`backend/cloudbuild.yaml`).
-
-### Release & Provenance Guardrails
-
-- **No mutable `:latest` tags**: Every build in `backend/cloudbuild.yaml` tags the image with `$BUILD_ID` (and `$COMMIT_SHA` whenever Git metadata is present) and never builds, tests, pushes, or deploys an untagged `:latest` reference.
-- **Manual `gcloud builds submit` compatibility**: Always keep `$BUILD_ID` as the unconditional tag and top-level `images` entry so manual `gcloud builds submit --config backend/cloudbuild.yaml backend` runs succeed even when `$COMMIT_SHA` is empty.
-- **Deploy by `@sha256:` digest**: The `push-image` step resolves the pushed `@sha256:` digest from Artifact Registry (`RepoDigests`), writes it to `/workspace/image-digest.txt`, and passes that digest to `gcloud run deploy --image` in `deploy-cloud-run`.
-- **SLSA build provenance**: `backend/cloudbuild.yaml` registers `${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID` in top-level `images` and sets `options.requestedVerifyOption: VERIFIED` so Cloud Build generates verified SLSA provenance attestations in Artifact Registry. Note that **full SLSA Level 3 source provenance requires trigger-driven builds from connected repositories** (manual `gcloud builds submit` uploads local source archives rather than fetching directly from a verified Git trigger).
-- **Pinned base image & filtered build context**: `backend/Dockerfile` pins `python:3.11-slim` by `@sha256:` digest, and `backend/.dockerignore` excludes `cloudbuild.yaml`, `Dockerfile`, `seed.py`, `app/routers/_init_.py`, `tests/`, `.env*`, `.venv/`, `__pycache__/`, and `*.db` from the production container image (while `test-image` streams `seed.py` and `tests/` into an ephemeral `docker run --rm -i` container without polluting the pushed image).
-
 ## Local Verification Commands (CI & Cloud Build Parity)
 
 Run all commands below from the repository root (`coffee-shop-app/`) before opening or updating a pull request.
 
-### 1. Backend Setup
+### 1. Backend Setup & `.gitignore` Verification
 
 ```bash
+! git check-ignore -q backend/.env.example
+git ls-files --error-unmatch backend/.env.example
+git check-ignore -q backend/.env
+
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
@@ -97,9 +83,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt pytest httpx websockets
 ```
 
-### 2. Backend Smoke Checks (SQLite Default)
-
-Verifies `app.main` startup imports and `seed.py` execution without `DATABASE_URL` (matching `backend-checks` in `.github/workflows/ci.yml`):
+### 2. Backend Smoke Checks (SQLite Default & PostgreSQL)
 
 ```bash
 cd backend
@@ -109,8 +93,6 @@ JWT_SECRET="local-dev-jwt-secret-key-12345" python -c "import app.main"
 JWT_SECRET="local-dev-jwt-secret-key-12345" python seed.py
 rm -f dev.db
 ```
-
-### 3. Backend Smoke Checks (PostgreSQL — When Available)
 
 When a local or containerized PostgreSQL instance is running on `localhost:5432`:
 
@@ -124,9 +106,46 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/coffee_test" \
   python seed.py
 ```
 
-### 4. Backend `pytest` Suite
+### 3. Validate `backend/cloudbuild.yaml`, Provenance & Production Startup Guards
 
-Runs all unit and integration tests strictly under `backend/tests/`:
+```bash
+python3 -c '
+import re, yaml
+from pathlib import Path
+
+text = Path("backend/cloudbuild.yaml").read_text()
+assert "replace-me" not in text
+assert not re.search(r"coffee-repo/coffee-backend(?![:@])|coffee-repo/coffee-backend:latest\b", text)
+cfg = yaml.safe_load(text)
+subs = cfg.get("substitutions", {})
+assert "_DB_PASS" not in subs and "_JWT_SECRET" not in subs
+assert cfg.get("serviceAccount") == "projects/$PROJECT_ID/serviceAccounts/${_BUILD_SERVICE_ACCOUNT}"
+assert cfg.get("options", {}).get("logging") == "CLOUD_LOGGING_ONLY"
+assert cfg.get("options", {}).get("requestedVerifyOption") == "VERIFIED"
+assert "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" in cfg.get("images", [])
+assert [s["id"] for s in cfg["steps"]] == ["validate-substitutions", "build-image", "test-image", "push-image", "deploy-cloud-run"]
+for step in cfg["steps"]:
+    assert "availableSecrets" not in cfg and "secretEnv" not in step
+deploy_args = " ".join(cfg["steps"][-1]["args"])
+assert "--service-account=${_RUN_SERVICE_ACCOUNT}" in deploy_args
+assert "--set-env-vars=^|^INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE}|APP_ENV=production" in deploy_args
+assert "--set-secrets=DATABASE_URL=${_DB_URL_SECRET}:latest,JWT_SECRET=${_JWT_SECRET_NAME}:latest" in deploy_args
+print("cloudbuild.yaml structure and provenance verified.")
+'
+
+cd backend
+python3 -c '
+import os, subprocess, sys
+
+for mod in ("app.auth", "app.database"):
+    env = {**os.environ, "K_SERVICE": "coffee-backend", "JWT_SECRET": "replace-me"}
+    res = subprocess.run([sys.executable, "-c", f"import {mod}"], env=env, capture_output=True, text=True)
+    assert res.returncode != 0 and ("RuntimeError" in res.stderr or "ConfigurationError" in res.stderr), res.stderr
+print("Production startup guards verified.")
+'
+```
+
+### 4. Backend `pytest` Suite
 
 ```bash
 cd backend
@@ -135,52 +154,26 @@ JWT_SECRET="local-dev-jwt-secret-key-12345" PYTHONPATH=. python -m pytest -v
 
 ### 5. Backend Container & Cloud Build Pipeline Gate
 
-1. **Validate `backend/cloudbuild.yaml` syntax and provenance invariants**:
+```bash
+docker build -t coffee-backend:local backend
+docker run --rm --entrypoint find coffee-backend:local /app -mindepth 1 -maxdepth 3 | sort
 
-   ```bash
-   yq -e '.options.requestedVerifyOption == "VERIFIED" and (.images | length > 0) and (.steps | length == 4)' backend/cloudbuild.yaml
-   ```
-
-   Or with Python (`PyYAML`):
-
-   ```bash
-   python3 -c '
-   import pathlib, re, yaml
-   raw = pathlib.Path("backend/cloudbuild.yaml").read_text()
-   cfg = yaml.safe_load(raw)
-   assert cfg["options"]["requestedVerifyOption"] == "VERIFIED"
-   assert "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" in cfg["images"]
-   assert [s["id"] for s in cfg["steps"]] == ["build-image", "test-image", "push-image", "deploy-cloud-run"]
-   assert not re.search(r"coffee-repo/coffee-backend(?![:@])|:latest\b", raw)
-   print("cloudbuild.yaml validation passed")
-   '
-   ```
-
-2. **Build `backend/Dockerfile` and inspect built image contents** (verify `.dockerignore` excludes `cloudbuild.yaml`, `Dockerfile`, `seed.py`, `app/routers/_init_.py`, `tests/`, `.env*`, `.venv/`, `__pycache__/`, and `*.db`):
-
-   ```bash
-   docker build -t coffee-backend:local backend
-   docker run --rm --entrypoint find coffee-backend:local /app -mindepth 1 -maxdepth 3 | sort
-   ```
-
-3. **Run ephemeral container smoke and `pytest` gate** (reproduces `test-image` in `backend/cloudbuild.yaml` without baking tests or seed scripts into `coffee-backend:local`):
-   ```bash
-   cd backend
-   tar -cf - seed.py tests | docker run --rm -i \
-     -e JWT_SECRET="cloudbuild-test-jwt-secret-key" \
-     coffee-backend:local \
-     sh -ceu '
-       tar -xf - -C /app
-       unset DATABASE_URL
-       python -c "import app.main"
-       python seed.py
-       rm -f dev.db
-       if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
-         pip install --no-cache-dir pytest httpx websockets
-         PYTHONPATH=. python -m pytest -v
-       fi
-     '
-   ```
+cd backend
+tar -cf - seed.py cloudbuild.yaml .env.example tests | docker run --rm -i \
+  -e JWT_SECRET="cloudbuild-test-jwt-secret-key" \
+  coffee-backend:local \
+  sh -ceu '
+    tar -xf - -C /app
+    unset DATABASE_URL
+    python -c "import app.main"
+    python seed.py
+    rm -f dev.db
+    if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
+      pip install --no-cache-dir pytest httpx websockets pyyaml
+      PYTHONPATH=. python -m pytest -v
+    fi
+  '
+```
 
 ### 6. Frontend Setup, Typecheck, Lint, Format, and Tests (`frontend/`)
 
@@ -189,61 +182,34 @@ Note that `.gitignore` excludes `package-lock.json`; pass `--no-package-lock` wh
 ```bash
 cd frontend
 npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
-
-# Strict TypeScript typechecking (tsc --noEmit)
 npm run typecheck
-
-# Non-interactive Next.js ESLint check (next lint --max-warnings 0)
 npm run lint
-
-# Prettier formatting check (prettier --check .)
 npm run format:check
-
-# Auto-format frontend files with Prettier (prettier --write .)
-npm run format
-
-# Unit and E2E tests
 npm run test:unit
 node --test __tests__/orderState.test.mjs
 npm run test:e2e
-
-# Production Next.js build (matches CI frontend-build)
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
 ### 7. Static Next.js Build, Export, and Bundle Audit
 
-Build the static export into `frontend/out` with production API/Socket URLs:
+Build the static export into `frontend/out` with production API/Socket URLs and verify that all eight static HTML pages exist with zero `http://localhost:8000` references:
 
 ```bash
 cd frontend
 NEXT_PUBLIC_API_URL="https://coffee-backend-example.us-central1.run.app" \
 NEXT_PUBLIC_SOCKET_URL="https://coffee-backend-example.us-central1.run.app" \
 npm run build
-```
 
-Verify the `export` script alias (`next build`) also succeeds cleanly on Next.js `14.1.0`:
-
-```bash
-cd frontend
 NEXT_PUBLIC_API_URL="https://coffee-backend-example.us-central1.run.app" npm run export
-```
 
-Verify that all eight static HTML pages exist in `frontend/out` and that zero `http://localhost:8000` references leaked into compiled HTML or JavaScript bundles:
-
-```bash
-cd frontend
 for page in index.html login.html dashboard.html orders.html inventory.html reports.html users.html 404.html; do
   test -f "out/$page"
 done
 test "$(find out -maxdepth 1 -name '*.html' | wc -l | tr -d ' ')" -eq 8
 ! grep -rnF 'http://localhost:8000' out/
-```
 
-Generate and verify the deterministic SHA-256 checksum manifest (`out/manifest.sha256`) attested in CI:
-
-```bash
-cd frontend/out
+cd out
 find . -type f ! -name 'manifest.sha256' -print0 \
   | LC_ALL=C sort -z \
   | xargs -0 sha256sum > manifest.sha256
@@ -251,8 +217,6 @@ sha256sum -c manifest.sha256
 ```
 
 ### 8. Firebase Hosting & CI Workflow Validation
-
-Validate `frontend/firebase.json` (`public: "out"`, `cleanUrls: true`, and Cloud Run rewrites targeting `coffee-backend` in `us-central1` for `/api/**`, `/auth/**`, `/dashboard/**`, `/orders/**`, `/inventory/**`, `/reports/**`, `/users/**`, and `/ws/**`) and confirm `frontend/.firebaserc` has no placeholder project ID:
 
 ```bash
 cd frontend
@@ -286,20 +250,10 @@ node -e '
   JSON.parse(firebasercRaw);
   console.log("Firebase Hosting configuration valid.");
 '
-```
 
-Validate CI/CD workflow schemas from the repository root:
-
-```bash
+cd ..
 check-jsonschema --builtin-schema vendor.github-workflows .github/workflows/ci.yml .github/workflows/deploy-frontend.yml
 check-jsonschema --builtin-schema vendor.cloudbuild backend/cloudbuild.yaml frontend/cloudbuild.yaml
-```
-
-Deploy `frontend/out` to Firebase Hosting explicitly passing `FIREBASE_PROJECT_ID`:
-
-```bash
-cd frontend
-npx --yes firebase-tools deploy --only hosting --project "$FIREBASE_PROJECT_ID"
 ```
 
 ## Guardrails

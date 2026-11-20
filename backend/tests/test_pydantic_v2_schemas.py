@@ -110,7 +110,7 @@ def test_routers_do_not_retain_legacy_v1_calls_or_shims():
 
 
 def test_orm_validation_parity_and_projected_row_summaries(db_session):
-    ts = datetime(2026, 11, 18, 12, 0, 0, 123456, tzinfo=UTC).replace(tzinfo=None)
+    ts = datetime(2026, 11, 18, 12, 0, 0, 123456, tzinfo=UTC)
     user = db_session.query(models.User).filter_by(username="manager").first()
     assert user is not None
 
