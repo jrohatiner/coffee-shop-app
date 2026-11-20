@@ -1,5 +1,5 @@
 steps:
-  - id: 'build-backend-image'
+  - id: 'build-image'
     name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
     args:
@@ -11,7 +11,37 @@ steps:
           TAGS+=("-t" "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$COMMIT_SHA")
         fi
         docker build "$${TAGS[@]}" .
-  - id: 'push-backend-image'
+  - id: 'test-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        TEST_PATHS=()
+        [ -f seed.py ] && TEST_PATHS+=("seed.py")
+        [ -d tests ] && TEST_PATHS+=("tests")
+        if [ "$${#TEST_PATHS[@]}" -gt 0 ]; then
+          tar -cf - "$${TEST_PATHS[@]}"
+        else
+          tar -cf - --files-from /dev/null
+        fi | docker run --rm -i \
+          -e JWT_SECRET=cloudbuild-test-jwt-secret-key \
+          "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" \
+          sh -ceu '
+            tar -xf - -C /app
+            unset DATABASE_URL
+            python -c "import app.main"
+            if [ -f seed.py ]; then
+              python seed.py
+            fi
+            rm -f dev.db
+            if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
+              pip install --no-cache-dir pytest httpx websockets
+              PYTHONPATH=. python -m pytest -v
+            fi
+          '
+  - id: 'push-image'
     name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
     args:
@@ -28,7 +58,7 @@ steps:
           exit 1
         fi
         printf '%s\n' "$$IMAGE_DIGEST" > /workspace/image-digest.txt
-  - id: 'deploy-backend-service'
+  - id: 'deploy-cloud-run'
     name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
     env:
