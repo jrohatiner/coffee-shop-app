@@ -47,7 +47,8 @@ const mockUseSocket = jest.fn((onReady?: (s: any) => void, enabled = true) => {
   return { current: enabled ? mockSocket : null }
 })
 jest.mock('../hooks/useSocket', () => ({
-  useSocket: (onReady?: (s: any) => void, enabled?: boolean) => mockUseSocket(onReady, enabled),
+  useSocket: (onReady?: (s: any) => void, enabled?: boolean) =>
+    mockUseSocket(onReady, enabled),
 }))
 
 const inputRenderSpy = jest.fn()
@@ -110,10 +111,14 @@ jest.mock('../components/OrderDetailModal', () => {
 
 import Inventory, { CreateProductForm, ProductRow } from '../pages/inventory'
 import Users, { CreateUserForm, UserRow } from '../pages/users'
-import Orders, { OrderCreator, OrdersTable, ProductPickerRow } from '../pages/orders'
+import Orders, {
+  OrderCreator,
+  OrdersTable,
+  ProductPickerRow,
+} from '../pages/orders'
 import Reports from '../pages/reports'
 
-const flushPromises = () => new Promise(resolve => setImmediate(resolve))
+const flushPromises = () => new Promise((resolve) => setImmediate(resolve))
 
 function resetAllSpies() {
   inputRenderSpy.mockClear()
@@ -129,14 +134,20 @@ function getVisibleButtonText(b: ReactTestInstance): string {
     .trim()
 }
 
-function findButtonByText(root: ReactTestInstance, label: string): ReactTestInstance {
+function findButtonByText(
+  root: ReactTestInstance,
+  label: string
+): ReactTestInstance {
   const buttons = root.findAllByType('button')
-  const match = buttons.find(b => getVisibleButtonText(b) === label)
+  const match = buttons.find((b) => getVisibleButtonText(b) === label)
   if (!match) throw new Error(`Button "${label}" not found`)
   return match
 }
 
-function findAllMemo(root: ReactTestInstance, memoComp: any): ReactTestInstance[] {
+function findAllMemo(
+  root: ReactTestInstance,
+  memoComp: any
+): ReactTestInstance[] {
   return root.findAllByType(memoComp.type ?? memoComp)
 }
 
@@ -169,7 +180,8 @@ describe('Staff pages state isolation and row memoization', () => {
       resetAllSpies()
 
       const createForm = findAllMemo(renderer.root, CreateProductForm)[0]
-      const [nameInput, priceInput, stockInput] = createForm.findAllByType('input')
+      const [nameInput, priceInput, stockInput] =
+        createForm.findAllByType('input')
 
       await act(async () => {
         nameInput.props.onChange({ target: { value: 'Flat White' } })
@@ -178,7 +190,9 @@ describe('Staff pages state isolation and row memoization', () => {
       })
 
       // Zero renders of ProductRow inputs (which have no placeholder) or Save/Delete buttons
-      const rowInputRenders = inputRenderSpy.mock.calls.filter(([props]) => !props.placeholder)
+      const rowInputRenders = inputRenderSpy.mock.calls.filter(
+        ([props]) => !props.placeholder
+      )
       const rowButtonRenders = buttonRenderSpy.mock.calls.filter(
         ([props]) => props.children === 'Save' || props.children === 'Delete'
       )
@@ -186,15 +200,18 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(rowButtonRenders).toHaveLength(0)
 
       // Failed POST preserves form state
-      mockApi.post.mockRejectedValueOnce({ response: { data: { detail: 'Duplicate name' } } })
+      mockApi.post.mockRejectedValueOnce({
+        response: { data: { detail: 'Duplicate name' } },
+      })
       const addButton = findButtonByText(renderer.root, 'Add Product')
       await act(async () => {
         await addButton.props.onClick()
       })
 
-      const afterFailInputs = findAllMemo(renderer.root, CreateProductForm)[0].findAllByType(
-        'input'
-      )
+      const afterFailInputs = findAllMemo(
+        renderer.root,
+        CreateProductForm
+      )[0].findAllByType('input')
       expect(afterFailInputs[0].props.value).toBe('Flat White')
       expect(afterFailInputs[1].props.value).toBe('4.75')
       expect(afterFailInputs[2].props.value).toBe('30')
@@ -211,9 +228,10 @@ describe('Staff pages state isolation and row memoization', () => {
         price: 4.75,
         stock: 30,
       })
-      const afterSuccessInputs = findAllMemo(renderer.root, CreateProductForm)[0].findAllByType(
-        'input'
-      )
+      const afterSuccessInputs = findAllMemo(
+        renderer.root,
+        CreateProductForm
+      )[0].findAllByType('input')
       expect(afterSuccessInputs[0].props.value).toBe('')
       expect(afterSuccessInputs[1].props.value).toBe('')
       expect(afterSuccessInputs[2].props.value).toBe('')
@@ -239,7 +257,9 @@ describe('Staff pages state isolation and row memoization', () => {
       resetAllSpies()
 
       await act(async () => {
-        firstRowInputs[0].props.onChange({ target: { value: 'Double Espresso' } })
+        firstRowInputs[0].props.onChange({
+          target: { value: 'Double Espresso' },
+        })
       })
       await act(async () => {
         firstRowInputs[1].props.onChange({ target: { value: '3.75' } })
@@ -249,7 +269,12 @@ describe('Staff pages state isolation and row memoization', () => {
       })
 
       // Original product object was never mutated in place
-      expect(originalFirst).toEqual({ id: 1, name: 'Espresso', price: 3.0, stock: 10 })
+      expect(originalFirst).toEqual({
+        id: 1,
+        name: 'Espresso',
+        price: 3.0,
+        stock: 10,
+      })
 
       // Only row 0 re-rendered across the 3 field edits (3 Save button renders total, 0 for rows 1..3)
       const saveButtonRenders = buttonRenderSpy.mock.calls.filter(
@@ -276,7 +301,12 @@ describe('Staff pages state isolation and row memoization', () => {
         price: 3.75,
         stock: 14,
       })
-      expect(originalFirst).toEqual({ id: 1, name: 'Espresso', price: 3.0, stock: 10 })
+      expect(originalFirst).toEqual({
+        id: 1,
+        name: 'Espresso',
+        price: 3.0,
+        stock: 10,
+      })
 
       // Server stock_update event refreshes draft values via useEffect
       mockApi.get.mockResolvedValueOnce({
@@ -286,17 +316,24 @@ describe('Staff pages state isolation and row memoization', () => {
         ],
       })
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb => cb())
+        socketListeners['stock_update']?.forEach((cb) => cb())
         await flushPromises()
       })
 
-      const updatedFirstRowInputs = findAllMemo(renderer.root, ProductRow)[0]
-        .findAllByType('input')
+      const updatedFirstRowInputs = findAllMemo(
+        renderer.root,
+        ProductRow
+      )[0].findAllByType('input')
       expect(updatedFirstRowInputs[2].props.value).toBe('6')
 
       // Deleting a row invokes DELETE /inventory/:id
-      const secondRowDelete = findButtonByText(findAllMemo(renderer.root, ProductRow)[1], 'Delete')
-      mockApi.get.mockResolvedValueOnce({ data: initialProducts.filter(p => p.id !== 2) })
+      const secondRowDelete = findButtonByText(
+        findAllMemo(renderer.root, ProductRow)[1],
+        'Delete'
+      )
+      mockApi.get.mockResolvedValueOnce({
+        data: initialProducts.filter((p) => p.id !== 2),
+      })
       await act(async () => {
         await secondRowDelete.props.onClick()
         await flushPromises()
@@ -323,19 +360,27 @@ describe('Staff pages state isolation and row memoization', () => {
       // Edit unsaved draft on sibling row #2 (Latte) so we can verify remote updates do not wipe it
       const initialRows = findAllMemo(renderer.root, ProductRow)
       await act(async () => {
-        initialRows[1].findAllByType('input')[0].props.onChange({ target: { value: 'Iced Latte Draft' } })
+        initialRows[1]
+          .findAllByType('input')[0]
+          .props.onChange({ target: { value: 'Iced Latte Draft' } })
       })
 
       // 1. Authoritative POST /inventory appends in place, triggers 0 GET /inventory calls, suppresses echo toast
       const createForm = findAllMemo(renderer.root, CreateProductForm)[0]
-      const [nameInput, priceInput, stockInput] = createForm.findAllByType('input')
+      const [nameInput, priceInput, stockInput] =
+        createForm.findAllByType('input')
       await act(async () => {
         nameInput.props.onChange({ target: { value: 'Matcha Latte' } })
         priceInput.props.onChange({ target: { value: '5.50' } })
         stockInput.props.onChange({ target: { value: '25' } })
       })
 
-      const createdProduct = { id: 5, name: 'Matcha Latte', price: 5.5, stock: 25 }
+      const createdProduct = {
+        id: 5,
+        name: 'Matcha Latte',
+        price: 5.5,
+        stock: 25,
+      }
       mockApi.post.mockResolvedValueOnce({ data: createdProduct })
       const addButton = findButtonByText(renderer.root, 'Add Product')
       await act(async () => {
@@ -346,12 +391,15 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(findAllMemo(renderer.root, ProductRow)).toHaveLength(5)
       expect(mockApi.get).not.toHaveBeenCalled()
       expect(mockToast).toHaveBeenCalledTimes(1)
-      expect(mockToast).toHaveBeenCalledWith({ title: 'Product created', description: 'Matcha Latte' })
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Product created',
+        description: 'Matcha Latte',
+      })
 
       // Local socket echo for create is suppressed (no Inventory Changed toast, no GET /inventory)
       mockToast.mockClear()
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb =>
+        socketListeners['stock_update']?.forEach((cb) =>
           cb({ updated: [createdProduct], deleted_ids: [] })
         )
         await flushPromises()
@@ -362,7 +410,9 @@ describe('Staff pages state isolation and row memoization', () => {
       // 2. Authoritative PUT /inventory/1 updates row in place, skips sibling renders, suppresses echo toast
       const rowsAfterCreate = findAllMemo(renderer.root, ProductRow)
       await act(async () => {
-        rowsAfterCreate[0].findAllByType('input')[2].props.onChange({ target: { value: '42' } })
+        rowsAfterCreate[0]
+          .findAllByType('input')[2]
+          .props.onChange({ target: { value: '42' } })
       })
       resetAllSpies()
       mockToast.mockClear()
@@ -377,11 +427,14 @@ describe('Staff pages state isolation and row memoization', () => {
 
       expect(mockApi.get).not.toHaveBeenCalled()
       expect(mockToast).toHaveBeenCalledTimes(1)
-      expect(mockToast).toHaveBeenCalledWith({ title: 'Saved', description: 'Espresso' })
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Saved',
+        description: 'Espresso',
+      })
 
       mockToast.mockClear()
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb =>
+        socketListeners['stock_update']?.forEach((cb) =>
           cb({ updated: [updatedEspresso], deleted_ids: [] })
         )
         await flushPromises()
@@ -391,8 +444,13 @@ describe('Staff pages state isolation and row memoization', () => {
 
       // 3. Authoritative DELETE /inventory/4 removes row in place and suppresses echo toast
       mockToast.mockClear()
-      mockApi.delete.mockResolvedValueOnce({ data: { detail: 'Product deleted' } })
-      const row4Delete = findButtonByText(findAllMemo(renderer.root, ProductRow)[3], 'Delete')
+      mockApi.delete.mockResolvedValueOnce({
+        data: { detail: 'Product deleted' },
+      })
+      const row4Delete = findButtonByText(
+        findAllMemo(renderer.root, ProductRow)[3],
+        'Delete'
+      )
       await act(async () => {
         await row4Delete.props.onClick()
         await flushPromises()
@@ -405,7 +463,7 @@ describe('Staff pages state isolation and row memoization', () => {
 
       mockToast.mockClear()
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb =>
+        socketListeners['stock_update']?.forEach((cb) =>
           cb({ updated: [], deleted_ids: [4] })
         )
         await flushPromises()
@@ -417,7 +475,7 @@ describe('Staff pages state isolation and row memoization', () => {
       resetAllSpies()
       mockToast.mockClear()
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb =>
+        socketListeners['stock_update']?.forEach((cb) =>
           cb({
             updated: [{ id: 3, name: 'Cappuccino', price: 4.25, stock: 9 }],
             deleted_ids: [],
@@ -433,9 +491,18 @@ describe('Staff pages state isolation and row memoization', () => {
       const currentRows = findAllMemo(renderer.root, ProductRow)
       expect(currentRows[2].findAllByType('input')[2].props.value).toBe('9')
       // Sibling row #2 (Latte) kept its unsaved draft text intact!
-      expect(currentRows[1].findAllByType('input')[0].props.value).toBe('Iced Latte Draft')
-      const renderedLegends = currentRows.map(r => r.findByType('legend').children.join(''))
-      expect(renderedLegends).toEqual(['Espresso', 'Latte', 'Cappuccino', 'Matcha Latte'])
+      expect(currentRows[1].findAllByType('input')[0].props.value).toBe(
+        'Iced Latte Draft'
+      )
+      const renderedLegends = currentRows.map((r) =>
+        r.findByType('legend').children.join('')
+      )
+      expect(renderedLegends).toEqual([
+        'Espresso',
+        'Latte',
+        'Cappuccino',
+        'Matcha Latte',
+      ])
 
       renderer.unmount()
     })
@@ -462,7 +529,8 @@ describe('Staff pages state isolation and row memoization', () => {
       resetAllSpies()
 
       const createUserForm = findAllMemo(renderer.root, CreateUserForm)[0]
-      const [usernameInput, passwordInput, managerCheckbox] = createUserForm.findAllByType('input')
+      const [usernameInput, passwordInput, managerCheckbox] =
+        createUserForm.findAllByType('input')
 
       await act(async () => {
         usernameInput.props.onChange({ target: { value: 'dave' } })
@@ -482,9 +550,10 @@ describe('Staff pages state isolation and row memoization', () => {
         await createBtn.props.onClick()
       })
 
-      const afterFailUserInputs = findAllMemo(renderer.root, CreateUserForm)[0].findAllByType(
-        'input'
-      )
+      const afterFailUserInputs = findAllMemo(
+        renderer.root,
+        CreateUserForm
+      )[0].findAllByType('input')
       expect(afterFailUserInputs[0].props.value).toBe('dave')
       expect(afterFailUserInputs[1].props.value).toBe('secret123')
       expect(afterFailUserInputs[2].props.checked).toBe(true)
@@ -501,9 +570,10 @@ describe('Staff pages state isolation and row memoization', () => {
         password: 'secret123',
         is_manager: true,
       })
-      const afterSuccessUserInputs = findAllMemo(renderer.root, CreateUserForm)[0].findAllByType(
-        'input'
-      )
+      const afterSuccessUserInputs = findAllMemo(
+        renderer.root,
+        CreateUserForm
+      )[0].findAllByType('input')
       expect(afterSuccessUserInputs[0].props.value).toBe('')
       expect(afterSuccessUserInputs[1].props.value).toBe('')
       expect(afterSuccessUserInputs[2].props.checked).toBe(false)
@@ -553,9 +623,12 @@ describe('Staff pages state isolation and row memoization', () => {
         if (url === '/orders') return Promise.resolve({ data: sampleOrders })
         if (url.startsWith('/orders/')) {
           const id = Number(url.split('/').pop())
-          return Promise.resolve({ data: sampleOrders.find(o => o.id === id) ?? sampleOrders[0] })
+          return Promise.resolve({
+            data: sampleOrders.find((o) => o.id === id) ?? sampleOrders[0],
+          })
         }
-        if (url === '/inventory') return Promise.resolve({ data: sampleProducts })
+        if (url === '/inventory')
+          return Promise.resolve({ data: sampleProducts })
         return Promise.resolve({ data: [] })
       })
     }
@@ -599,18 +672,22 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(inputRenderSpy).toHaveBeenCalledTimes(2)
 
       // Failed order POST keeps cart & status intact; successful POST resets both
-      mockApi.post.mockRejectedValueOnce({ response: { data: { detail: 'Out of stock' } } })
+      mockApi.post.mockRejectedValueOnce({
+        response: { data: { detail: 'Out of stock' } },
+      })
       const createOrderBtn = findButtonByText(renderer.root, 'Create Order')
       await act(async () => {
         await createOrderBtn.props.onClick()
       })
 
-      expect(findAllMemo(renderer.root, ProductPickerRow)[0].findByType('input').props.value).toBe(
-        4
-      )
-      expect(findAllMemo(renderer.root, OrderCreator)[0].findByType('select').props.value).toBe(
-        'in_progress'
-      )
+      expect(
+        findAllMemo(renderer.root, ProductPickerRow)[0].findByType('input')
+          .props.value
+      ).toBe(4)
+      expect(
+        findAllMemo(renderer.root, OrderCreator)[0].findByType('select').props
+          .value
+      ).toBe('in_progress')
 
       mockApi.post.mockResolvedValueOnce({ data: { id: 104 } })
       await act(async () => {
@@ -622,12 +699,14 @@ describe('Staff pages state isolation and row memoization', () => {
         status: 'in_progress',
         items: [{ product_id: 1, quantity: 4 }],
       })
-      expect(findAllMemo(renderer.root, ProductPickerRow)[0].findByType('input').props.value).toBe(
-        0
-      )
-      expect(findAllMemo(renderer.root, OrderCreator)[0].findByType('select').props.value).toBe(
-        'pending'
-      )
+      expect(
+        findAllMemo(renderer.root, ProductPickerRow)[0].findByType('input')
+          .props.value
+      ).toBe(0)
+      expect(
+        findAllMemo(renderer.root, OrderCreator)[0].findByType('select').props
+          .value
+      ).toBe('pending')
 
       renderer.unmount()
     })
@@ -647,7 +726,7 @@ describe('Staff pages state isolation and row memoization', () => {
       // Open modal for Order #101
       const viewButtons = renderer.root
         .findAllByType('button')
-        .filter(b => getVisibleButtonText(b) === 'View')
+        .filter((b) => getVisibleButtonText(b) === 'View')
       await act(async () => {
         viewButtons[0].props.onClick()
         await flushPromises()
@@ -683,7 +762,7 @@ describe('Staff pages state isolation and row memoization', () => {
       // Cancel action on active order still works via memoized callback
       const cancelButtons = renderer.root
         .findAllByType('button')
-        .filter(b => getVisibleButtonText(b) === 'Cancel')
+        .filter((b) => getVisibleButtonText(b) === 'Cancel')
       expect(cancelButtons).toHaveLength(2) // pending + in_progress (completed has no Cancel button)
       await act(async () => {
         await cancelButtons[0].props.onClick()
@@ -697,13 +776,21 @@ describe('Staff pages state isolation and row memoization', () => {
     test('preserves pagination/filtering params and local socket echo deduplication without re-rendering OrderCreator', async () => {
       mockApi.get.mockImplementation((url: string) => {
         if (url === '/orders') {
-          return Promise.resolve({ data: sampleOrders, headers: { 'x-has-more': 'true' } })
+          return Promise.resolve({
+            data: sampleOrders,
+            headers: { 'x-has-more': 'true' },
+          })
         }
-        if (url === '/inventory') return Promise.resolve({ data: sampleProducts })
+        if (url === '/inventory')
+          return Promise.resolve({ data: sampleProducts })
         return Promise.resolve({ data: [] })
       })
       mockApi.post.mockResolvedValue({
-        data: { id: 105, status: 'pending', created_at: '2026-01-10T13:00:00Z' },
+        data: {
+          id: 105,
+          status: 'pending',
+          created_at: '2026-01-10T13:00:00Z',
+        },
       })
 
       let renderer!: TestRenderer.ReactTestRenderer
@@ -718,7 +805,9 @@ describe('Staff pages state isolation and row memoization', () => {
 
       resetAllSpies()
 
-      const statusFilterSelect = renderer.root.findByProps({ id: 'orders-status-filter' })
+      const statusFilterSelect = renderer.root.findByProps({
+        id: 'orders-status-filter',
+      })
       const nextBtn = findButtonByText(renderer.root, 'Next')
 
       await act(async () => {
@@ -746,7 +835,9 @@ describe('Staff pages state isolation and row memoization', () => {
       // Local order creation suppresses immediate socket new_order & stock_update echoes
       const pickerRows = findAllMemo(renderer.root, ProductPickerRow)
       await act(async () => {
-        pickerRows[0].findByType('input').props.onChange({ target: { value: '1' } })
+        pickerRows[0]
+          .findByType('input')
+          .props.onChange({ target: { value: '1' } })
       })
 
       mockToast.mockClear()
@@ -760,10 +851,10 @@ describe('Staff pages state isolation and row memoization', () => {
       mockToast.mockClear()
       mockApi.get.mockClear()
       await act(async () => {
-        socketListeners['new_order']?.forEach(cb =>
+        socketListeners['new_order']?.forEach((cb) =>
           cb({ id: 105, status: 'pending', created_at: '2026-01-10T13:00:00Z' })
         )
-        socketListeners['stock_update']?.forEach(cb => cb())
+        socketListeners['stock_update']?.forEach((cb) => cb())
         await flushPromises()
       })
       // Echoes from our own local create were suppressed; subsequent remote event goes through
@@ -771,7 +862,7 @@ describe('Staff pages state isolation and row memoization', () => {
       expect(mockApi.get).not.toHaveBeenCalled()
 
       await act(async () => {
-        socketListeners['new_order']?.forEach(cb =>
+        socketListeners['new_order']?.forEach((cb) =>
           cb({ id: 106, status: 'pending', created_at: '2026-01-10T14:00:00Z' })
         )
         await flushPromises()
@@ -798,7 +889,9 @@ describe('Staff pages state isolation and row memoization', () => {
       const pickerRows = findAllMemo(renderer.root, ProductPickerRow)
       const firstInputId = pickerRows[0].findByType('input').props.id
       await act(async () => {
-        pickerRows[0].findByType('input').props.onChange({ target: { value: '2' } })
+        pickerRows[0]
+          .findByType('input')
+          .props.onChange({ target: { value: '2' } })
       })
       resetAllSpies()
 
@@ -825,13 +918,19 @@ describe('Staff pages state isolation and row memoization', () => {
       })
 
       expect(mockApi.get).not.toHaveBeenCalledWith('/inventory')
-      expect(findAllMemo(renderer.root, ProductPickerRow)[0].props.product.stock).toBe(8)
+      expect(
+        findAllMemo(renderer.root, ProductPickerRow)[0].props.product.stock
+      ).toBe(8)
       // Sibling picker rows (#2 Latte & #3 Mocha) skipped re-rendering; only Product #1 rendered (stock update + cart reset)
       const numberInputRendersAfterCreate = inputRenderSpy.mock.calls.filter(
         ([props]) => props.type === 'number'
       )
       expect(numberInputRendersAfterCreate.length).toBeGreaterThan(0)
-      expect(numberInputRendersAfterCreate.every(([props]) => props.id === firstInputId)).toBe(true)
+      expect(
+        numberInputRendersAfterCreate.every(
+          ([props]) => props.id === firstInputId
+        )
+      ).toBe(true)
 
       // 2. Cancel order returning authoritative OrderOut with restocked items[].product -> 0 GET /inventory calls
       mockApi.get.mockClear()
@@ -855,7 +954,7 @@ describe('Staff pages state isolation and row memoization', () => {
 
       const cancelButtons = renderer.root
         .findAllByType('button')
-        .filter(b => getVisibleButtonText(b) === 'Cancel')
+        .filter((b) => getVisibleButtonText(b) === 'Cancel')
       await act(async () => {
         await cancelButtons[0].props.onClick()
         await flushPromises()
@@ -863,7 +962,9 @@ describe('Staff pages state isolation and row memoization', () => {
 
       expect(mockApi.post).toHaveBeenLastCalledWith('/orders/110/cancel')
       expect(mockApi.get).not.toHaveBeenCalledWith('/inventory')
-      expect(findAllMemo(renderer.root, ProductPickerRow)[0].props.product.stock).toBe(10)
+      expect(
+        findAllMemo(renderer.root, ProductPickerRow)[0].props.product.stock
+      ).toBe(10)
       const numberInputRendersAfterCancel = inputRenderSpy.mock.calls.filter(
         ([props]) => props.type === 'number'
       )
@@ -871,8 +972,11 @@ describe('Staff pages state isolation and row memoization', () => {
 
       // Consume the local cancel stock_update echo before testing remote stock_update
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb =>
-          cb({ updated: [{ id: 1, name: 'Espresso', price: 3.0, stock: 10 }], deleted_ids: [] })
+        socketListeners['stock_update']?.forEach((cb) =>
+          cb({
+            updated: [{ id: 1, name: 'Espresso', price: 3.0, stock: 10 }],
+            deleted_ids: [],
+          })
         )
         await flushPromises()
       })
@@ -882,7 +986,7 @@ describe('Staff pages state isolation and row memoization', () => {
       resetAllSpies()
 
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb =>
+        socketListeners['stock_update']?.forEach((cb) =>
           cb({
             updated: [
               { id: 2, name: 'Latte', price: 4.5, stock: 16 },
@@ -896,7 +1000,9 @@ describe('Staff pages state isolation and row memoization', () => {
 
       expect(mockApi.get).not.toHaveBeenCalledWith('/inventory')
       const updatedPickerRows = findAllMemo(renderer.root, ProductPickerRow)
-      expect(updatedPickerRows.map(r => r.props.product.id)).toEqual([1, 2, 4])
+      expect(updatedPickerRows.map((r) => r.props.product.id)).toEqual([
+        1, 2, 4,
+      ])
       expect(updatedPickerRows[1].props.product.stock).toBe(16)
       // Unchanged Product #1 skipped re-rendering; only updated #2 and appended #4 rendered
       const remoteDeltaInputRenders = inputRenderSpy.mock.calls.filter(
@@ -907,7 +1013,7 @@ describe('Staff pages state isolation and row memoization', () => {
       // 4. Legacy payload-less stock_update falls back to GET /inventory
       mockApi.get.mockClear()
       await act(async () => {
-        socketListeners['stock_update']?.forEach(cb => cb())
+        socketListeners['stock_update']?.forEach((cb) => cb())
         await flushPromises()
       })
       expect(mockApi.get).toHaveBeenCalledWith('/inventory')
@@ -917,7 +1023,12 @@ describe('Staff pages state isolation and row memoization', () => {
   })
 
   describe('Reports page', () => {
-    const makeReports = (period: string, count: number, startId = 1, baseSales = 100) =>
+    const makeReports = (
+      period: string,
+      count: number,
+      startId = 1,
+      baseSales = 100
+    ) =>
       Array.from({ length: count }, (_, idx) => ({
         id: startId + idx,
         report_type: period,
@@ -927,27 +1038,36 @@ describe('Staff pages state isolation and row memoization', () => {
 
     const getTextContent = (node: ReactTestInstance): string =>
       node.children
-        .map(child => (typeof child === 'string' ? child : getTextContent(child)))
+        .map((child) =>
+          typeof child === 'string' ? child : getTextContent(child)
+        )
         .join('')
 
     const triggerTablistKey = (root: ReactTestInstance, key: string) => {
       const tablistNode = root.findByProps({ role: 'tablist' })
       const tabNodes = tablistNode.findAll(
-        n => n.type === 'button' && n.props.role === 'tab'
+        (n) => n.type === 'button' && n.props.role === 'tab'
       )
       const mockTablist: any = {}
-      const mockTabs = tabNodes.map(n => ({
+      const mockTabs = tabNodes.map((n) => ({
         focus: jest.fn(),
-        closest: (selector: string) => (selector === '[role="tablist]' || selector === '[role="tablist"]' ? mockTablist : null),
+        closest: (selector: string) =>
+          selector === '[role="tablist]' || selector === '[role="tablist"]'
+            ? mockTablist
+            : null,
         getAttribute: (attr: string) => {
-          if (attr === 'aria-selected') return String(Boolean(n.props['aria-selected']))
-          if (attr === 'aria-disabled') return String(Boolean(n.props['aria-disabled']))
+          if (attr === 'aria-selected')
+            return String(Boolean(n.props['aria-selected']))
+          if (attr === 'aria-disabled')
+            return String(Boolean(n.props['aria-disabled']))
           if (attr === 'data-value') return n.props['data-value'] ?? null
           return n.props[attr] ?? null
         },
       }))
       mockTablist.querySelectorAll = () => mockTabs
-      const activeIdx = tabNodes.findIndex(n => n.props['aria-selected'] === true)
+      const activeIdx = tabNodes.findIndex(
+        (n) => n.props['aria-selected'] === true
+      )
       const activeTabMock = mockTabs[activeIdx >= 0 ? activeIdx : 0]
       mockTablist.ownerDocument = { activeElement: activeTabMock }
       tablistNode.props.onKeyDown({
@@ -959,7 +1079,8 @@ describe('Staff pages state isolation and row memoization', () => {
         preventDefault: jest.fn(),
         currentTarget: mockTablist,
         target: {
-          closest: (selector: string) => (selector === '[role="tab"]' ? activeTabMock : null),
+          closest: (selector: string) =>
+            selector === '[role="tab"]' ? activeTabMock : null,
         },
       })
     }
@@ -970,10 +1091,16 @@ describe('Staff pages state isolation and row memoization', () => {
 
       mockApi.get.mockImplementation((url: string) => {
         if (url === '/reports/daily') {
-          return Promise.resolve({ data: dailyPage1, headers: { 'x-has-more': 'true' } })
+          return Promise.resolve({
+            data: dailyPage1,
+            headers: { 'x-has-more': 'true' },
+          })
         }
         if (url === '/reports/weekly') {
-          return Promise.resolve({ data: weeklyPage1, headers: { 'x-has-more': 'false' } })
+          return Promise.resolve({
+            data: weeklyPage1,
+            headers: { 'x-has-more': 'false' },
+          })
         }
         return Promise.resolve({ data: [], headers: { 'x-has-more': 'false' } })
       })
@@ -997,7 +1124,9 @@ describe('Staff pages state isolation and row memoization', () => {
       const dailyItems = renderer.root.findByType('ul').findAllByType('li')
       expect(dailyItems).toHaveLength(20)
       expect(getTextContent(dailyItems[0])).toBe('DAILY — $150.00')
-      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(true)
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        true
+      )
       expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(false)
 
       // Switch to Weekly -> fetches /reports/weekly once
@@ -1028,7 +1157,9 @@ describe('Staff pages state isolation and row memoization', () => {
       })
 
       expect(mockApi.get).toHaveBeenCalledTimes(2)
-      const restoredDailyItems = renderer.root.findByType('ul').findAllByType('li')
+      const restoredDailyItems = renderer.root
+        .findByType('ul')
+        .findAllByType('li')
       expect(restoredDailyItems).toHaveLength(20)
       expect(getTextContent(restoredDailyItems[0])).toBe('DAILY — $150.00')
       expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(false)
@@ -1041,18 +1172,32 @@ describe('Staff pages state isolation and row memoization', () => {
       const dailyPage2 = makeReports('daily', 5, 21, 400)
       const monthlyPage1 = makeReports('monthly', 2, 301, 3200)
 
-      mockApi.get.mockImplementation((url: string, cfg?: { params?: { offset?: number } }) => {
-        if (url === '/reports/daily') {
-          if (cfg?.params?.offset === 20) {
-            return Promise.resolve({ data: dailyPage2, headers: { 'x-has-more': 'false' } })
+      mockApi.get.mockImplementation(
+        (url: string, cfg?: { params?: { offset?: number } }) => {
+          if (url === '/reports/daily') {
+            if (cfg?.params?.offset === 20) {
+              return Promise.resolve({
+                data: dailyPage2,
+                headers: { 'x-has-more': 'false' },
+              })
+            }
+            return Promise.resolve({
+              data: dailyPage1,
+              headers: { 'x-has-more': 'true' },
+            })
           }
-          return Promise.resolve({ data: dailyPage1, headers: { 'x-has-more': 'true' } })
+          if (url === '/reports/monthly') {
+            return Promise.resolve({
+              data: monthlyPage1,
+              headers: { 'x-has-more': 'false' },
+            })
+          }
+          return Promise.resolve({
+            data: [],
+            headers: { 'x-has-more': 'false' },
+          })
         }
-        if (url === '/reports/monthly') {
-          return Promise.resolve({ data: monthlyPage1, headers: { 'x-has-more': 'false' } })
-        }
-        return Promise.resolve({ data: [], headers: { 'x-has-more': 'false' } })
-      })
+      )
 
       let renderer!: TestRenderer.ReactTestRenderer
       await act(async () => {
@@ -1074,10 +1219,12 @@ describe('Staff pages state isolation and row memoization', () => {
         })
       )
       expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(5)
-      expect(getTextContent(renderer.root.findByType('ul').findAllByType('li')[0])).toBe(
-        'DAILY — $400.00'
+      expect(
+        getTextContent(renderer.root.findByType('ul').findAllByType('li')[0])
+      ).toBe('DAILY — $400.00')
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        false
       )
-      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(false)
       expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(true)
 
       // Switch to Monthly and back to Daily -> Daily stays on cached Page 2 without refetching
@@ -1094,7 +1241,9 @@ describe('Staff pages state isolation and row memoization', () => {
       })
       expect(mockApi.get).not.toHaveBeenCalled()
       expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(5)
-      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(false)
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        false
+      )
       expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(true)
 
       // Navigate Previous on Daily -> fetches page 1 (offset 0)
@@ -1110,8 +1259,12 @@ describe('Staff pages state isolation and row memoization', () => {
           signal: expect.any(AbortSignal),
         })
       )
-      expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(20)
-      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(true)
+      expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(
+        20
+      )
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        true
+      )
       expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(false)
 
       renderer.unmount()
@@ -1126,16 +1279,18 @@ describe('Staff pages state isolation and row memoization', () => {
       }
       const pendingCalls: PendingCall[] = []
 
-      mockApi.get.mockImplementation((url: string, cfg?: { signal?: AbortSignal }) => {
-        return new Promise((resolve, reject) => {
-          pendingCalls.push({
-            url,
-            signal: cfg!.signal!,
-            resolve,
-            reject,
+      mockApi.get.mockImplementation(
+        (url: string, cfg?: { signal?: AbortSignal }) => {
+          return new Promise((resolve, reject) => {
+            pendingCalls.push({
+              url,
+              signal: cfg!.signal!,
+              resolve,
+              reject,
+            })
           })
-        })
-      })
+        }
+      )
 
       let renderer!: TestRenderer.ReactTestRenderer
       await act(async () => {
@@ -1176,7 +1331,11 @@ describe('Staff pages state isolation and row memoization', () => {
       // Canceled rejections and stale out-of-order resolutions do not show error toasts or overwrite state
       await act(async () => {
         pendingCalls[0].reject({ name: 'CanceledError', code: 'ERR_CANCELED' })
-        pendingCalls[1].reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }))
+        pendingCalls[1].reject(
+          Object.assign(new Error('The operation was aborted.'), {
+            name: 'AbortError',
+          })
+        )
         pendingCalls[2].resolve({
           data: [{ id: 999, report_type: 'monthly', total_sales: 9999 }],
           headers: { 'x-has-more': 'false' },
