@@ -1,6 +1,6 @@
 import os
 import tempfile
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from unittest.mock import patch
 
 # Point app.database at an isolated temp SQLite database during standalone import
@@ -9,17 +9,28 @@ _IMPORT_DB.close()
 os.environ.setdefault("JWT_SECRET", "super-secret-test-key-for-auth-tests")
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_IMPORT_DB.name}")
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import Column, Index, Integer, MetaData, String, Table, create_engine, event, inspect, text
-from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.schema import CreateIndex
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import (  # noqa: E402
+    Column,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    event,
+    inspect,
+    text,
+)
+from sqlalchemy.dialects import postgresql, sqlite  # noqa: E402
+from sqlalchemy.exc import IntegrityError  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.schema import CreateIndex  # noqa: E402
 
-from app import auth, models
-from app.database import Base, get_db
-from app.main import app, ensure_indexes
+from app import auth, models  # noqa: E402
+from app.database import Base, get_db  # noqa: E402
+from app.main import app, ensure_indexes  # noqa: E402
 
 
 def teardown_module(module):
@@ -64,7 +75,21 @@ def db_env(tmp_path):
         engine.dispose()
 
 
-def _auth_headers(username: str) -> dict:
+def _naive_utc(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0,
+    second: int = 0,
+    microsecond: int = 0,
+) -> datetime:
+    return datetime(
+        year, month, day, hour, minute, second, microsecond, tzinfo=UTC
+    ).replace(tzinfo=None)
+
+
+def _auth_headers(username: str) -> dict[str, str]:
     token = auth.create_access_token({"sub": username})
     return {"Authorization": f"Bearer {token}"}
 
@@ -266,15 +291,13 @@ def test_warm_startup_and_ensure_indexes_use_single_checkout_and_batched_reflect
     def _record_statement(_conn, _cursor, statement, _params, _context, _executemany):
         statements.append(statement)
 
-    # 1. Standalone ensure_indexes(bind_engine=Engine) -> 1 checkout, 19 reflection queries
+    # 1. Standalone ensure_indexes(bind_engine=Engine) -> 1 checkout, 19 queries
     ensure_indexes(bind_engine=warm_engine)
     assert len(checkouts) == 1
     assert len(statements) == 19
-    assert not any(
-        stmt.lstrip().upper().startswith("CREATE") for stmt in statements
-    )
+    assert not any(stmt.lstrip().upper().startswith("CREATE") for stmt in statements)
 
-    # 2. Shared startup transaction (create_all + ensure_indexes on Connection) -> 1 checkout
+    # 2. Shared startup transaction (create_all + ensure_indexes) -> 1 checkout
     checkouts.clear()
     statements.clear()
     with warm_engine.begin() as conn:
@@ -283,9 +306,7 @@ def test_warm_startup_and_ensure_indexes_use_single_checkout_and_batched_reflect
 
     assert len(checkouts) == 1
     assert len(statements) == 24
-    assert not any(
-        stmt.lstrip().upper().startswith("CREATE") for stmt in statements
-    )
+    assert not any(stmt.lstrip().upper().startswith("CREATE") for stmt in statements)
 
     warm_engine.dispose()
 
@@ -328,7 +349,8 @@ def test_ensure_indexes_handles_missing_tables_unnamed_and_duplicate_indexes(tmp
     with empty_engine.begin() as conn:
         conn.execute(
             text(
-                "CREATE TABLE sample_items (id INTEGER PRIMARY KEY, code VARCHAR, label VARCHAR)"
+                "CREATE TABLE sample_items "
+                "(id INTEGER PRIMARY KEY, code VARCHAR, label VARCHAR)"
             )
         )
 
@@ -340,9 +362,7 @@ def test_ensure_indexes_handles_missing_tables_unnamed_and_duplicate_indexes(tmp
 
     assert len(checkouts) == 1
     create_index_stmts = [
-        stmt
-        for stmt in statements
-        if stmt.lstrip().upper().startswith("CREATE INDEX")
+        stmt for stmt in statements if stmt.lstrip().upper().startswith("CREATE INDEX")
     ]
     assert len(create_index_stmts) == 2
 
@@ -379,24 +399,20 @@ def test_orders_date_filter_utc_boundaries_and_combined_status(db_env):
         db.refresh(latte)
 
         timestamps_and_statuses = [
-            ("prev_day_end", datetime(2026, 11, 17, 23, 59, 59, 999999), "pending"),
-            ("day_start", datetime(2026, 11, 18, 0, 0, 0, 0), "pending"),
-            ("day_mid_completed", datetime(2026, 11, 18, 12, 30, 0, 0), "completed"),
-            ("day_end", datetime(2026, 11, 18, 23, 59, 59, 999999), "pending"),
-            ("next_day_start", datetime(2026, 11, 19, 0, 0, 0, 0), "pending"),
-            ("leap_day", datetime(2024, 2, 29, 23, 59, 59, 0), "completed"),
-            ("after_leap_day", datetime(2024, 3, 1, 0, 0, 0, 0), "completed"),
+            ("prev_day_end", _naive_utc(2026, 11, 17, 23, 59, 59, 999999), "pending"),
+            ("day_start", _naive_utc(2026, 11, 18, 0, 0, 0, 0), "pending"),
+            ("day_mid_completed", _naive_utc(2026, 11, 18, 12, 30, 0, 0), "completed"),
+            ("day_end", _naive_utc(2026, 11, 18, 23, 59, 59, 999999), "pending"),
+            ("next_day_start", _naive_utc(2026, 11, 19, 0, 0, 0, 0), "pending"),
+            ("leap_day", _naive_utc(2024, 2, 29, 23, 59, 59, 0), "completed"),
+            ("after_leap_day", _naive_utc(2024, 3, 1, 0, 0, 0, 0), "completed"),
         ]
         label_to_id = {}
         for label, ts, st in timestamps_and_statuses:
             order = models.Order(user_id=mgr.id, status=st, created_at=ts)
             db.add(order)
             db.flush()
-            db.add(
-                models.OrderItem(
-                    order_id=order.id, product_id=latte.id, quantity=2
-                )
-            )
+            db.add(models.OrderItem(order_id=order.id, product_id=latte.id, quantity=2))
             label_to_id[label] = order.id
         db.commit()
     finally:
@@ -562,15 +578,11 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
             o = models.Order(
                 user_id=staff_with_orders.id,
                 status="completed",
-                created_at=datetime(2026, 11, 1, 8, 0, 0) + timedelta(hours=i),
+                created_at=_naive_utc(2026, 11, 1, 8, 0, 0) + timedelta(hours=i),
             )
             db.add(o)
             db.flush()
-            db.add(
-                models.OrderItem(
-                    order_id=o.id, product_id=used_prod.id, quantity=1
-                )
-            )
+            db.add(models.OrderItem(order_id=o.id, product_id=used_prod.id, quantity=1))
 
         db.add_all(
             [
@@ -617,7 +629,7 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
             "created_at",
         }
 
-    # Inventory blocks deleting products referenced by orders, allows deleting unused products
+    # Inventory blocks deleting products in orders, allows deleting unused products
     del_used = client.delete(f"/inventory/{used_prod_id}", headers=headers)
     assert del_used.status_code == 400
     assert "existing orders" in del_used.json()["detail"]

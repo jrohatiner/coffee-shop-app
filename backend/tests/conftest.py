@@ -1,7 +1,7 @@
 import os
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -14,18 +14,21 @@ os.close(_CONFTEST_DB_FD)
 os.environ["JWT_SECRET"] = "super-secret-test-key-for-auth-tests"
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_CONFTEST_DB_PATH}")
 
-import pytest
-from fastapi.testclient import TestClient
-from passlib.context import CryptContext
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from passlib.context import CryptContext  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-from app import database as database_module, models
-from app.database import Base, get_db
-from app.main import app
+from app import database as database_module  # noqa: E402
+from app import models  # noqa: E402
+from app.database import Base, get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 TEST_DATABASE_URL = f"sqlite:///{_CONFTEST_DB_PATH}"
-test_engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+test_engine = create_engine(
+    TEST_DATABASE_URL, connect_args={"check_same_thread": False}
+)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated=["auto"])
@@ -37,6 +40,7 @@ def override_get_db():
         yield db
     finally:
         db.close()
+
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
@@ -78,9 +82,7 @@ def _preserve_database_bindings():
     prev_engine = database_module.engine
     prev_session_local = database_module.SessionLocal
     prev_bind = (
-        prev_session_local.kw.get("bind")
-        if hasattr(prev_session_local, "kw")
-        else None
+        prev_session_local.kw.get("bind") if hasattr(prev_session_local, "kw") else None
     )
     try:
         yield
@@ -116,7 +118,7 @@ def client():
         with TestClient(app) as c:
             yield c
     finally:
-        if had_prev:
+        if had_prev and prev_override is not None:
             app.dependency_overrides[get_db] = prev_override
         else:
             app.dependency_overrides.pop(get_db, None)
