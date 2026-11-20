@@ -35,6 +35,43 @@ EOF
 
 cat > backend/cloudbuild.yaml << 'EOF'
 steps:
+  - id: 'validate-substitutions'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-ceu'
+      - |
+        fail() { echo "ERROR: $$1" >&2; exit 1; }
+        check_val() {
+          local name="$$1" val="$$2" lower
+          lower="$$(printf '%s' "$$val" | tr '[:upper:]' '[:lower:]')"
+          if [[ -z "$${val//[[:space:]]/}" ]]; then
+            fail "$${name} must not be empty."
+          fi
+          if [[ "$$lower" == *your_* || "$$lower" == *your-* || "$$lower" == *replace* || "$$lower" == *changeme* || "$$lower" == *placeholder* || "$$val" == *"<"* || "$$val" == *">"* ]]; then
+            fail "$${name} contains an unconfigured placeholder value: '$${val}'."
+          fi
+        }
+        check_val "_CLOUD_SQL_INSTANCE" "$$1"
+        check_val "_BUILD_SERVICE_ACCOUNT" "$$2"
+        check_val "_RUN_SERVICE_ACCOUNT" "$$3"
+        check_val "_DB_URL_SECRET" "$$4"
+        check_val "_JWT_SECRET_NAME" "$$5"
+        if [[ ! "$$1" =~ ^[a-z0-9.:-]+:[a-z0-9-]+:[a-z0-9-]+$$ ]]; then
+          fail "_CLOUD_SQL_INSTANCE must match '<project>:<region>:<instance>', got '$$1'."
+        fi
+        if [[ ! "$$2" =~ ^[a-z0-9._-]+@[a-z0-9.-]+\.gserviceaccount\.com$$ ]]; then
+          fail "_BUILD_SERVICE_ACCOUNT must be a valid IAM service account email, got '$$2'."
+        fi
+        if [[ ! "$$3" =~ ^[a-z0-9._-]+@[a-z0-9.-]+\.gserviceaccount\.com$$ ]]; then
+          fail "_RUN_SERVICE_ACCOUNT must be a valid IAM service account email, got '$$3'."
+        fi
+      - '_'
+      - '${_CLOUD_SQL_INSTANCE}'
+      - '${_BUILD_SERVICE_ACCOUNT}'
+      - '${_RUN_SERVICE_ACCOUNT}'
+      - '${_DB_URL_SECRET}'
+      - '${_JWT_SECRET_NAME}'
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend','.']
   - name: 'gcr.io/cloud-builders/docker'
@@ -48,20 +85,34 @@ steps:
         '--region','${_REGION}',
         '--platform','managed',
         '--allow-unauthenticated',
+        '--service-account=${_RUN_SERVICE_ACCOUNT}',
         '--add-cloudsql-instances','${_CLOUD_SQL_INSTANCE}',
-        '--set-env-vars','DATABASE_URL=postgresql://postgres:${_DB_PASS}@localhost:5432/coffee,INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE},JWT_SECRET=${_JWT_SECRET}'
+        '--set-env-vars=^|^INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE}|APP_ENV=production',
+        '--set-secrets=DATABASE_URL=${_DB_URL_SECRET}:latest,JWT_SECRET=${_JWT_SECRET_NAME}:latest'
       ]
+serviceAccount: projects/$PROJECT_ID/serviceAccounts/${_BUILD_SERVICE_ACCOUNT}
+options:
+  logging: CLOUD_LOGGING_ONLY
 substitutions:
   _REGION: 'us-central1'
   _CLOUD_SQL_INSTANCE: 'YOUR_PROJECT_ID:us-central1:coffee-db'
-  _DB_PASS: 'replace-me'
-  _JWT_SECRET: 'replace-me'
+  _BUILD_SERVICE_ACCOUNT: 'coffee-build@YOUR_PROJECT_ID.iam.gserviceaccount.com'
+  _RUN_SERVICE_ACCOUNT: 'coffee-run@YOUR_PROJECT_ID.iam.gserviceaccount.com'
+  _DB_URL_SECRET: 'coffee-db-url'
+  _JWT_SECRET_NAME: 'coffee-jwt-secret'
 EOF
 
 cat > backend/.env.example << 'EOF'
-DATABASE_URL=postgresql://postgres:YOUR_DB_PASSWORD@localhost:5432/coffee
-INSTANCE_UNIX_SOCKET=YOUR_PROJECT_ID:us-central1:coffee-db
-JWT_SECRET=replace-with-strong-random
+# Local development environment template.
+# Production Cloud Run deployments bind DATABASE_URL and JWT_SECRET from Secret Manager.
+APP_ENV=development
+DATABASE_URL=sqlite:///./dev.db
+# For local PostgreSQL:
+# DATABASE_URL=postgresql+psycopg2://postgres:YOUR_DB_PASSWORD@localhost:5432/coffee
+# INSTANCE_UNIX_SOCKET=YOUR_PROJECT_ID:us-central1:coffee-db
+
+# Local-only JWT signing secret (production enforces >= 32 unpredictable characters):
+JWT_SECRET=local-dev-secret-not-for-production
 EOF
 
 # Backend app files
