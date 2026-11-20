@@ -14,6 +14,16 @@ ENV_EXAMPLE_PATH = BACKEND_DIR / ".env.example"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 AGENTS_MD_PATH = REPO_ROOT / "AGENTS.md"
 REQUIREMENTS_PATH = BACKEND_DIR / "requirements.txt"
+REQUIREMENTS_IN_PATH = BACKEND_DIR / "requirements.in"
+
+
+def _has_requirement_spec(path: Path, package_name: str) -> bool:
+    pattern = re.compile(rf"^{re.escape(package_name)}(?:$|[=<>!~;\s\\])")
+    return any(
+        pattern.match(line.strip())
+        for line in path.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
 
 
 def _parse_gcloud_dict_flag(raw_value: str) -> dict[str, str]:
@@ -389,7 +399,9 @@ def test_bootstrap_script_synchronized_with_hardened_templates():
 
 
 def test_gitignore_tracks_env_example_and_docs_exist():
-    assert "psycopg2-binary" in REQUIREMENTS_PATH.read_text().splitlines()
+    assert _has_requirement_spec(REQUIREMENTS_PATH, "psycopg2-binary")
+    if REQUIREMENTS_IN_PATH.exists():
+        assert _has_requirement_spec(REQUIREMENTS_IN_PATH, "psycopg2-binary")
     if not (REPO_ROOT / ".git").exists():
         pytest.skip("Git metadata absent in standalone container context")
     gitignore_lines = [line.strip() for line in GITIGNORE_PATH.read_text().splitlines()]
@@ -422,7 +434,6 @@ def test_gitignore_tracks_env_example_and_docs_exist():
     )
     assert check_ignore_real_env.returncode == 0
 
-    assert "psycopg2-binary" in REQUIREMENTS_PATH.read_text().splitlines()
     assert AGENTS_MD_PATH.is_file()
     agents_text = AGENTS_MD_PATH.read_text()
     assert "backend/.env.example" in agents_text
