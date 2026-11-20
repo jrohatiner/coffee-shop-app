@@ -1,10 +1,11 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import api from '../lib/api'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { toast } from '../components/ui/use-toast'
+import { useFocusHandoff } from '../hooks/useFocusHandoff'
 
 export type UserItem = { id: number; username: string; is_manager?: boolean }
 
@@ -63,16 +64,29 @@ export const CreateUserForm = memo(function CreateUserForm({
 export const UserRow = memo(function UserRow({
   user,
   onDelete,
+  onRegisterDeleteButton,
 }: {
   user: UserItem
   onDelete: (id: number) => void
+  onRegisterDeleteButton?: (id: number, el: HTMLButtonElement | null) => void
 }) {
+  const setDeleteButtonRef = useCallback(
+    (el: HTMLButtonElement | null) => {
+      onRegisterDeleteButton?.(user.id, el)
+    },
+    [onRegisterDeleteButton, user.id]
+  )
+
   return (
     <li className="flex justify-between items-center">
       <span>
         {user.username} {user.is_manager ? '(Manager)' : ''}
       </span>
-      <Button contextLabel={`user ${user.username}`} onClick={() => onDelete(user.id)}>
+      <Button
+        ref={setDeleteButtonRef}
+        contextLabel={`user ${user.username}`}
+        onClick={() => onDelete(user.id)}
+      >
         Delete
       </Button>
     </li>
@@ -82,11 +96,27 @@ export const UserRow = memo(function UserRow({
 export default function Users() {
   const user = useAuth()
   const [users, setUsers] = useState<UserItem[]>([])
+  const usersRef = useRef<UserItem[]>(users)
+  usersRef.current = users
+  const existingUsersHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const deleteButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+  const { prepareFocusHandoff } = useFocusHandoff()
+
+  const registerDeleteButton = useCallback((id: number, el: HTMLButtonElement | null) => {
+    if (el) {
+      deleteButtonRefs.current.set(id, el)
+    } else {
+      deleteButtonRefs.current.delete(id)
+    }
+  }, [])
 
   const load = useCallback(() => {
-    api
+    return api
       .get('/users')
-      .then(r => setUsers(r.data))
+      .then(r => {
+        usersRef.current = r.data
+        setUsers(r.data)
+      })
       .catch(() => toast({ title: 'Error', description: 'Manager only', variant: 'destructive' }))
   }, [])
 
@@ -96,15 +126,42 @@ export default function Users() {
 
   const del = useCallback(
     async (id: number) => {
+      const snapshot = usersRef.current
+      const deletedIdx = snapshot.findIndex(u => u.id === id)
+      const nextNeighborId = deletedIdx >= 0 ? snapshot[deletedIdx + 1]?.id : undefined
+      const prevNeighborId = deletedIdx > 0 ? snapshot[deletedIdx - 1]?.id : undefined
+
+      const handoff = prepareFocusHandoff(deleteButtonRefs.current.get(id), () => {
+        const currentUsers = usersRef.current
+        const candidates: (HTMLElement | string | null | undefined)[] = []
+        if (nextNeighborId !== undefined) {
+          candidates.push(deleteButtonRefs.current.get(nextNeighborId))
+        }
+        if (deletedIdx >= 0 && currentUsers.length > 0) {
+          const adjacentUser =
+            currentUsers[Math.min(deletedIdx, currentUsers.length - 1)]
+          if (adjacentUser) {
+            candidates.push(deleteButtonRefs.current.get(adjacentUser.id))
+          }
+        }
+        if (prevNeighborId !== undefined) {
+          candidates.push(deleteButtonRefs.current.get(prevNeighborId))
+        }
+        candidates.push(existingUsersHeadingRef.current, '#existing-users-heading')
+        return candidates
+      })
+
       try {
         await api.delete(`/users/${id}`)
         toast({ title: 'User deleted' })
-        load()
+        await load()
+        handoff.commit()
       } catch {
+        handoff.cancel()
         toast({ title: 'Error', description: 'Failed to delete', variant: 'destructive' })
       }
     },
-    [load]
+    [load, prepareFocusHandoff]
   )
 
   if (!user) return null
@@ -114,12 +171,22 @@ export default function Users() {
       <h1 className="text-2xl font-bold">User Management</h1>
       <CreateUserForm onCreated={load} />
       <div className="border rounded p-4 space-y-2">
-        <h2 id="existing-users-heading" className="font-semibold">
+        <h2
+          id="existing-users-heading"
+          ref={existingUsersHeadingRef}
+          tabIndex={-1}
+          className="font-semibold"
+        >
           Existing
         </h2>
         <ul aria-labelledby="existing-users-heading" className="space-y-2">
           {users.map(u => (
-            <UserRow key={u.id} user={u} onDelete={del} />
+            <UserRow
+              key={u.id}
+              user={u}
+              onDelete={del}
+              onRegisterDeleteButton={registerDeleteButton}
+            />
           ))}
         </ul>
       </div>

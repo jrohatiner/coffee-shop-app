@@ -162,6 +162,25 @@ const {
     { page: 1, pageSize: 2, hasMore: true },
   )
   assert.equal(olderCancel, page1)
+
+  // Removes existing order when active statusFilter excludes cancelled status
+  const filteredAfterCancel = reconcileCancelledOrder(
+    page1,
+    { id: 20, status: 'cancelled' },
+    { page: 1, pageSize: 2, statusFilter: 'pending' },
+  )
+  assert.deepEqual(filteredAfterCancel.map(o => o.id), [19])
+
+  // Keeps existing cancelled order when statusFilter is 'cancelled'
+  const cancelledFilterMatch = reconcileCancelledOrder(
+    page1,
+    { id: 20, status: 'cancelled' },
+    { page: 1, pageSize: 2, statusFilter: 'cancelled' },
+  )
+  assert.deepEqual(cancelledFilterMatch.map(o => ({ id: o.id, status: o.status })), [
+    { id: 20, status: 'cancelled' },
+    { id: 19, status: 'pending' },
+  ])
 }
 
 // 7. Product delta merge preserves unchanged object references, appends new products, and deletes removed IDs

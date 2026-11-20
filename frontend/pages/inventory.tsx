@@ -6,6 +6,7 @@ import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useSocket } from '../hooks/useSocket'
+import { FocusHandoffHandle, useFocusHandoff } from '../hooks/useFocusHandoff'
 import {
   hasDeleteDetail,
   parseStockDelta,
@@ -104,10 +105,12 @@ export const ProductRow = memo(function ProductRow({
   product,
   onSave,
   onDelete,
+  onRegisterDeleteButton,
 }: {
   product: Product
   onSave: (p: Product) => void
   onDelete: (id: number) => void
+  onRegisterDeleteButton?: (id: number, el: HTMLButtonElement | null) => void
 }) {
   const baseId = useId()
   const legendId = `${baseId}-legend`
@@ -139,6 +142,13 @@ export const ProductRow = memo(function ProductRow({
       stock: Number.isNaN(parsedStock) ? 0 : parsedStock,
     })
   }
+
+  const setDeleteButtonRef = useCallback(
+    (el: HTMLButtonElement | null) => {
+      onRegisterDeleteButton?.(product.id, el)
+    },
+    [onRegisterDeleteButton, product.id]
+  )
 
   const productLabel = product.name.trim() || `Product #${product.id}`
 
@@ -183,7 +193,12 @@ export const ProductRow = memo(function ProductRow({
         <Button type="button" contextLabel={productLabel} onClick={handleSave}>
           Save
         </Button>
-        <Button type="button" contextLabel={productLabel} onClick={() => onDelete(product.id)}>
+        <Button
+          ref={setDeleteButtonRef}
+          type="button"
+          contextLabel={productLabel}
+          onClick={() => onDelete(product.id)}
+        >
           Delete
         </Button>
       </div>
@@ -194,12 +209,55 @@ export const ProductRow = memo(function ProductRow({
 export default function Inventory() {
   const user = useAuth()
   const [products, setProducts] = useState<Product[]>([])
+  const productsRef = useRef<Product[]>(products)
+  productsRef.current = products
+  const productsHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const deleteButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+  const activeDeleteHandoffIdsRef = useRef<Set<number>>(new Set())
   const pendingLocalStockRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const { prepareFocusHandoff } = useFocusHandoff()
+
+  const registerDeleteButton = useCallback((id: number, el: HTMLButtonElement | null) => {
+    if (el) {
+      deleteButtonRefs.current.set(id, el)
+    } else {
+      deleteButtonRefs.current.delete(id)
+    }
+  }, [])
+
+  const buildDeleteFocusTargets = useCallback((deletedId: number, snapshot: Product[]) => {
+    const deletedIdx = snapshot.findIndex(p => p.id === deletedId)
+    const nextNeighborId = deletedIdx >= 0 ? snapshot[deletedIdx + 1]?.id : undefined
+    const prevNeighborId = deletedIdx > 0 ? snapshot[deletedIdx - 1]?.id : undefined
+
+    return () => {
+      const currentProducts = productsRef.current
+      const candidates: (HTMLElement | string | null | undefined)[] = []
+      if (nextNeighborId !== undefined) {
+        candidates.push(deleteButtonRefs.current.get(nextNeighborId))
+      }
+      if (deletedIdx >= 0 && currentProducts.length > 0) {
+        const adjacentProduct =
+          currentProducts[Math.min(deletedIdx, currentProducts.length - 1)]
+        if (adjacentProduct) {
+          candidates.push(deleteButtonRefs.current.get(adjacentProduct.id))
+        }
+      }
+      if (prevNeighborId !== undefined) {
+        candidates.push(deleteButtonRefs.current.get(prevNeighborId))
+      }
+      candidates.push(productsHeadingRef.current, '#products-heading')
+      return candidates
+    }
+  }, [])
 
   const load = useCallback(() => {
     return api
       .get('/inventory')
-      .then(r => setProducts(r.data))
+      .then(r => {
+        productsRef.current = r.data
+        setProducts(r.data)
+      })
       .catch(() => {})
   }, [])
 
@@ -209,6 +267,7 @@ export default function Inventory() {
 
   useEffect(() => {
     return () => {
+      activeDeleteHandoffIdsRef.current.clear()
       pendingLocalStockRef.current.forEach(t => clearTimeout(t))
       pendingLocalStockRef.current = []
     }
@@ -234,6 +293,28 @@ export default function Inventory() {
     }
   }, [])
 
+  const applyProductsDeltaWithHandoff = useCallback(
+    (delta: { updated: ProductItem[]; deleted_ids: number[] }) => {
+      let remoteHandoff: FocusHandoffHandle | null = null
+      for (const deletedId of delta.deleted_ids) {
+        if (!activeDeleteHandoffIdsRef.current.has(deletedId)) {
+          const candidateHandoff = prepareFocusHandoff(
+            deleteButtonRefs.current.get(deletedId),
+            buildDeleteFocusTargets(deletedId, productsRef.current)
+          )
+          remoteHandoff = candidateHandoff
+        }
+      }
+      setProducts(prev => {
+        const next = reconcileProductsDelta(prev, delta)
+        productsRef.current = next
+        return next
+      })
+      remoteHandoff?.commit()
+    },
+    [buildDeleteFocusTargets, prepareFocusHandoff]
+  )
+
   const handleSocket = useCallback(
     (s: any) => {
       s.on('stock_update', (payload?: unknown) => {
@@ -242,19 +323,19 @@ export default function Inventory() {
           const timer = pendingLocalStockRef.current.shift()
           if (timer) clearTimeout(timer)
           if (delta) {
-            setProducts(prev => reconcileProductsDelta(prev, delta))
+            applyProductsDeltaWithHandoff(delta)
           }
           return
         }
         toast({ title: 'Inventory Changed' })
         if (delta) {
-          setProducts(prev => reconcileProductsDelta(prev, delta))
+          applyProductsDeltaWithHandoff(delta)
           return
         }
         load()
       })
     },
-    [load]
+    [applyProductsDeltaWithHandoff, load]
   )
   useSocket(handleSocket, Boolean(user))
 
@@ -269,9 +350,11 @@ export default function Inventory() {
         const created = toProductItem(res?.data)
         if (created) {
           armLocalEchoToken(stockEchoToken)
-          setProducts(prev =>
-            reconcileProductsDelta(prev, { updated: [created], deleted_ids: [] })
-          )
+          setProducts(prev => {
+            const next = reconcileProductsDelta(prev, { updated: [created], deleted_ids: [] })
+            productsRef.current = next
+            return next
+          })
         } else {
           disarmLocalEchoToken(stockEchoToken)
           load()
@@ -294,7 +377,11 @@ export default function Inventory() {
         }, LOCAL_SOCKET_ECHO_TTL_MS)
         ;(expiry as any)?.unref?.()
         pendingLocalStockRef.current.push(expiry)
-        setProducts(prev => reconcileProductsDelta(prev, { updated: [parsed], deleted_ids: [] }))
+        setProducts(prev => {
+          const next = reconcileProductsDelta(prev, { updated: [parsed], deleted_ids: [] })
+          productsRef.current = next
+          return next
+        })
         return
       }
       load()
@@ -313,9 +400,11 @@ export default function Inventory() {
         const updated = toProductItem(res?.data)
         if (updated) {
           armLocalEchoToken(stockEchoToken)
-          setProducts(prev =>
-            reconcileProductsDelta(prev, { updated: [updated], deleted_ids: [] })
-          )
+          setProducts(prev => {
+            const next = reconcileProductsDelta(prev, { updated: [updated], deleted_ids: [] })
+            productsRef.current = next
+            return next
+          })
           toast({ title: 'Saved', description: updated.name })
         } else {
           disarmLocalEchoToken(stockEchoToken)
@@ -332,6 +421,11 @@ export default function Inventory() {
 
   const del = useCallback(
     async (id: number) => {
+      const handoff = prepareFocusHandoff(
+        deleteButtonRefs.current.get(id),
+        buildDeleteFocusTargets(id, productsRef.current)
+      )
+      activeDeleteHandoffIdsRef.current.add(id)
       const stockEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
       clearTimeout(stockEchoToken)
       pendingLocalStockRef.current.push(stockEchoToken)
@@ -340,14 +434,24 @@ export default function Inventory() {
         const res = await api.delete(`/inventory/${id}`)
         if (hasDeleteDetail(res?.data)) {
           armLocalEchoToken(stockEchoToken)
-          setProducts(prev => reconcileProductsDelta(prev, { updated: [], deleted_ids: [id] }))
+          setProducts(prev => {
+            const next = reconcileProductsDelta(prev, { updated: [], deleted_ids: [id] })
+            productsRef.current = next
+            return next
+          })
+          activeDeleteHandoffIdsRef.current.delete(id)
+          handoff.commit()
           toast({ title: 'Product deleted' })
         } else {
           disarmLocalEchoToken(stockEchoToken)
           toast({ title: 'Product deleted' })
-          load()
+          await load()
+          activeDeleteHandoffIdsRef.current.delete(id)
+          handoff.commit()
         }
       } catch (e: any) {
+        activeDeleteHandoffIdsRef.current.delete(id)
+        handoff.cancel()
         disarmLocalEchoToken(stockEchoToken)
         toast({
           title: 'Error',
@@ -356,7 +460,7 @@ export default function Inventory() {
         })
       }
     },
-    [armLocalEchoToken, disarmLocalEchoToken, load]
+    [armLocalEchoToken, buildDeleteFocusTargets, disarmLocalEchoToken, load, prepareFocusHandoff]
   )
 
   if (!user) return null
@@ -370,9 +474,22 @@ export default function Inventory() {
 
       {/* Existing Products */}
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg">Products</h2>
+        <h2
+          id="products-heading"
+          ref={productsHeadingRef}
+          tabIndex={-1}
+          className="font-semibold text-lg"
+        >
+          Products
+        </h2>
         {products.map(p => (
-          <ProductRow key={p.id} product={p} onSave={save} onDelete={del} />
+          <ProductRow
+            key={p.id}
+            product={p}
+            onSave={save}
+            onDelete={del}
+            onRegisterDeleteButton={registerDeleteButton}
+          />
         ))}
       </section>
     </div>

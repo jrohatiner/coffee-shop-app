@@ -1,10 +1,20 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
+import { FocusHandoffHandle, useFocusHandoff } from '../hooks/useFocusHandoff'
 import {
   Table,
   TableHeader,
@@ -209,25 +219,50 @@ export const OrderRow = memo(function OrderRow({
   formattedCreatedAt,
   onSelect,
   onCancel,
+  onRegisterViewButton,
+  onRegisterCancelButton,
 }: {
   order: OrderSummary
   formattedCreatedAt?: string
   onSelect: (order: OrderSummary) => void
   onCancel: (id: number) => void
+  onRegisterViewButton?: (id: number, el: HTMLButtonElement | null) => void
+  onRegisterCancelButton?: (id: number, el: HTMLButtonElement | null) => void
 }) {
   const contextLabel = `order #${order.id}`
   const displayDate = formattedCreatedAt ?? formatOrderDate(order.created_at)
+  const setViewButtonRef = useCallback(
+    (el: HTMLButtonElement | null) => {
+      onRegisterViewButton?.(order.id, el)
+    },
+    [onRegisterViewButton, order.id]
+  )
+  const setCancelButtonRef = useCallback(
+    (el: HTMLButtonElement | null) => {
+      onRegisterCancelButton?.(order.id, el)
+    },
+    [onRegisterCancelButton, order.id]
+  )
+
   return (
     <TableRow>
       <TableRowHeader>{order.id}</TableRowHeader>
       <TableCell>{order.status}</TableCell>
       <TableCell>{displayDate}</TableCell>
       <TableCell className="flex gap-2">
-        <Button contextLabel={contextLabel} onClick={() => onSelect(order)}>
+        <Button
+          ref={setViewButtonRef}
+          contextLabel={contextLabel}
+          onClick={() => onSelect(order)}
+        >
           View
         </Button>
         {order.status !== 'cancelled' && order.status !== 'completed' && (
-          <Button contextLabel={contextLabel} onClick={() => onCancel(order.id)}>
+          <Button
+            ref={setCancelButtonRef}
+            contextLabel={contextLabel}
+            onClick={() => onCancel(order.id)}
+          >
             Cancel
           </Button>
         )}
@@ -240,10 +275,14 @@ export const OrdersTable = memo(function OrdersTable({
   orders,
   onSelect,
   onCancel,
+  onRegisterViewButton,
+  onRegisterCancelButton,
 }: {
   orders: OrderSummary[]
   onSelect: (order: OrderSummary) => void
   onCancel: (id: number) => void
+  onRegisterViewButton?: (id: number, el: HTMLButtonElement | null) => void
+  onRegisterCancelButton?: (id: number, el: HTMLButtonElement | null) => void
 }) {
   const orderRows = useMemo(
     () => orders.map(order => ({ order, formattedCreatedAt: formatOrderDate(order.created_at) })),
@@ -268,6 +307,8 @@ export const OrdersTable = memo(function OrdersTable({
             formattedCreatedAt={formattedCreatedAt}
             onSelect={onSelect}
             onCancel={onCancel}
+            onRegisterViewButton={onRegisterViewButton}
+            onRegisterCancelButton={onRegisterCancelButton}
           />
         ))}
         {orders.length === 0 && (
@@ -290,6 +331,7 @@ const OrdersFilters = memo(function OrdersFilters({
   onDateFilterChange,
   onPageSizeChange,
   onClearFilters,
+  clearButtonRef,
 }: {
   statusFilter: string
   dateFilter: string
@@ -298,6 +340,7 @@ const OrdersFilters = memo(function OrdersFilters({
   onDateFilterChange: (value: string) => void
   onPageSizeChange: (size: number) => void
   onClearFilters: () => void
+  clearButtonRef?: RefObject<HTMLButtonElement | null>
 }) {
   return (
     <div className="flex flex-wrap items-end gap-4">
@@ -339,7 +382,11 @@ const OrdersFilters = memo(function OrdersFilters({
         ))}
       </Select>
 
-      {(statusFilter || dateFilter) && <Button onClick={onClearFilters}>Clear Filters</Button>}
+      {(statusFilter || dateFilter) && (
+        <Button ref={clearButtonRef} onClick={onClearFilters}>
+          Clear Filters
+        </Button>
+      )}
     </div>
   )
 })
@@ -350,12 +397,16 @@ const OrdersPagination = memo(function OrdersPagination({
   hasMore,
   onPrevPage,
   onNextPage,
+  prevButtonRef,
+  nextButtonRef,
 }: {
   page: number
   ordersCount: number
   hasMore: boolean
   onPrevPage: () => void
   onNextPage: () => void
+  prevButtonRef?: RefObject<HTMLButtonElement | null>
+  nextButtonRef?: RefObject<HTMLButtonElement | null>
 }) {
   return (
     <div className="flex items-center justify-between pt-2">
@@ -364,6 +415,7 @@ const OrdersPagination = memo(function OrdersPagination({
       </div>
       <div className="flex items-center gap-2">
         <Button
+          ref={prevButtonRef}
           disabled={page <= 1}
           className="disabled:opacity-50 disabled:pointer-events-none"
           onClick={onPrevPage}
@@ -371,6 +423,7 @@ const OrdersPagination = memo(function OrdersPagination({
           Previous
         </Button>
         <Button
+          ref={nextButtonRef}
           disabled={!hasMore}
           className="disabled:opacity-50 disabled:pointer-events-none"
           onClick={onNextPage}
@@ -395,6 +448,60 @@ export default function Orders() {
   const [dateFilter, setDateFilter] = useState<string>('')
   const [hasMore, setHasMore] = useState<boolean>(false)
 
+  const { prepareFocusHandoff, handoffFocus } = useFocusHandoff()
+  const ordersHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const clearFiltersButtonRef = useRef<HTMLButtonElement | null>(null)
+  const prevPageButtonRef = useRef<HTMLButtonElement | null>(null)
+  const nextPageButtonRef = useRef<HTMLButtonElement | null>(null)
+  const viewButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+  const cancelButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+  const paginationHandoffRef = useRef<FocusHandoffHandle | null>(null)
+  const activeCancelHandoffIdsRef = useRef<Set<number>>(new Set())
+
+  const registerViewButton = useCallback((id: number, el: HTMLButtonElement | null) => {
+    if (el) {
+      viewButtonRefs.current.set(id, el)
+    } else {
+      viewButtonRefs.current.delete(id)
+    }
+  }, [])
+
+  const registerCancelButton = useCallback((id: number, el: HTMLButtonElement | null) => {
+    if (el) {
+      cancelButtonRefs.current.set(id, el)
+    } else {
+      cancelButtonRefs.current.delete(id)
+    }
+  }, [])
+
+  const buildCancelFocusTargets = useCallback((cancelledId: number, snapshot: OrderSummary[]) => {
+    const cancelledIdx = snapshot.findIndex(o => o.id === cancelledId)
+    const nextNeighborId = cancelledIdx >= 0 ? snapshot[cancelledIdx + 1]?.id : undefined
+    const prevNeighborId = cancelledIdx > 0 ? snapshot[cancelledIdx - 1]?.id : undefined
+
+    return () => {
+      const currentOrders = ordersRef.current
+      const candidates: (HTMLElement | string | null | undefined)[] = [
+        viewButtonRefs.current.get(cancelledId),
+      ]
+      if (nextNeighborId !== undefined) {
+        candidates.push(viewButtonRefs.current.get(nextNeighborId))
+      }
+      if (cancelledIdx >= 0 && currentOrders.length > 0) {
+        const adjacentOrder =
+          currentOrders[Math.min(cancelledIdx, currentOrders.length - 1)]
+        if (adjacentOrder) {
+          candidates.push(viewButtonRefs.current.get(adjacentOrder.id))
+        }
+      }
+      if (prevNeighborId !== undefined) {
+        candidates.push(viewButtonRefs.current.get(prevNeighborId))
+      }
+      candidates.push(ordersHeadingRef.current, '#orders-heading')
+      return candidates
+    }
+  }, [])
+
   const requestSeqRef = useRef(0)
   const pendingLocalCreatesRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const pendingLocalCancelsRef = useRef<Map<number, ReturnType<typeof setTimeout> | null>>(new Map())
@@ -418,13 +525,43 @@ export default function Orders() {
     ) {
       setHasMore(true)
     }
-    setOrders(prev => reconcileCreatedOrder(prev, payload, view))
+    setOrders(prev => {
+      const next = reconcileCreatedOrder(prev, payload, view)
+      ordersRef.current = next
+      return next
+    })
   }, [])
 
-  const applyCancelledOrder = useCallback((payload: unknown) => {
-    const view = viewStateRef.current
-    setOrders(prev => reconcileCancelledOrder(prev, payload, view))
-  }, [])
+  const applyCancelledOrder = useCallback(
+    (payload: unknown) => {
+      const view = viewStateRef.current
+      const record =
+        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+      const cancelledId =
+        typeof record?.id === 'number'
+          ? record.id
+          : typeof record?.order_id === 'number'
+            ? record.order_id
+            : null
+
+      let remoteHandoff: FocusHandoffHandle | null = null
+      if (cancelledId !== null && !activeCancelHandoffIdsRef.current.has(cancelledId)) {
+        remoteHandoff = prepareFocusHandoff(
+          cancelButtonRefs.current.get(cancelledId),
+          buildCancelFocusTargets(cancelledId, ordersRef.current)
+        )
+      }
+
+      setOrders(prev => {
+        const next = reconcileCancelledOrder(prev, payload, view)
+        ordersRef.current = next
+        return next
+      })
+
+      remoteHandoff?.commit()
+    },
+    [buildCancelFocusTargets, prepareFocusHandoff]
+  )
 
   const applyStockDelta = useCallback((delta: StockDelta) => {
     setProducts(prev => reconcileProductsDelta(prev, delta))
@@ -444,6 +581,7 @@ export default function Orders() {
       .then(r => {
         if (seq !== requestSeqRef.current) return
         const data: OrderSummary[] = r.data
+        ordersRef.current = data
         setOrders(data)
         const headerHasMore = r.headers?.['x-has-more']
         const more =
@@ -451,9 +589,17 @@ export default function Orders() {
             ? String(headerHasMore).toLowerCase() === 'true'
             : data.length === pageSize
         setHasMore(more)
+        if (paginationHandoffRef.current) {
+          paginationHandoffRef.current.commit()
+          paginationHandoffRef.current = null
+        }
       })
       .catch(() => {
         if (seq !== requestSeqRef.current) return
+        if (paginationHandoffRef.current) {
+          paginationHandoffRef.current.commit()
+          paginationHandoffRef.current = null
+        }
         toast({ title: 'Error', description: 'Failed to load orders', variant: 'destructive' })
       })
   }, [page, pageSize, statusFilter, dateFilter])
@@ -490,6 +636,9 @@ export default function Orders() {
 
   useEffect(() => {
     return () => {
+      paginationHandoffRef.current?.cancel()
+      paginationHandoffRef.current = null
+      activeCancelHandoffIdsRef.current.clear()
       pendingLocalCreatesRef.current.forEach(t => clearTimeout(t))
       pendingLocalCreatesRef.current = []
       pendingLocalCancelsRef.current.forEach(t => {
@@ -616,58 +765,70 @@ export default function Orders() {
 
   const handleOrderCreated = useCallback(() => loadProductsRef.current(), [])
 
-  const cancelOrder = useCallback(async (id: number) => {
-    pendingLocalCancelsRef.current.set(id, null)
-    const stockEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
-    clearTimeout(stockEchoToken)
-    pendingLocalStockRef.current.push(stockEchoToken)
+  const cancelOrder = useCallback(
+    async (id: number) => {
+      const handoff = prepareFocusHandoff(
+        cancelButtonRefs.current.get(id),
+        buildCancelFocusTargets(id, ordersRef.current)
+      )
+      activeCancelHandoffIdsRef.current.add(id)
+      pendingLocalCancelsRef.current.set(id, null)
+      const stockEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
+      clearTimeout(stockEchoToken)
+      pendingLocalStockRef.current.push(stockEchoToken)
 
-    try {
-      const res = await api.post(`/orders/${id}/cancel`)
-      const cancelPayload =
-        res?.data && typeof res.data === 'object' && ('id' in res.data || 'order_id' in res.data)
-          ? res.data
-          : { order_id: id, status: 'cancelled' }
-      applyCancelledOrderRef.current(cancelPayload)
-      toast({ title: 'Order cancelled' })
+      try {
+        const res = await api.post(`/orders/${id}/cancel`)
+        const cancelPayload =
+          res?.data && typeof res.data === 'object' && ('id' in res.data || 'order_id' in res.data)
+            ? res.data
+            : { order_id: id, status: 'cancelled' }
+        applyCancelledOrderRef.current(cancelPayload)
+        activeCancelHandoffIdsRef.current.delete(id)
+        handoff.commit()
+        toast({ title: 'Order cancelled' })
 
-      if (pendingLocalCancelsRef.current.has(id)) {
-        const expiry = setTimeout(() => {
-          pendingLocalCancelsRef.current.delete(id)
-        }, LOCAL_SOCKET_ECHO_TTL_MS)
-        ;(expiry as any)?.unref?.()
-        pendingLocalCancelsRef.current.set(id, expiry)
+        if (pendingLocalCancelsRef.current.has(id)) {
+          const expiry = setTimeout(() => {
+            pendingLocalCancelsRef.current.delete(id)
+          }, LOCAL_SOCKET_ECHO_TTL_MS)
+          ;(expiry as any)?.unref?.()
+          pendingLocalCancelsRef.current.set(id, expiry)
+        }
+
+        const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
+        if (stockIdx !== -1) {
+          const expiry = setTimeout(() => {
+            const idx = pendingLocalStockRef.current.indexOf(expiry)
+            if (idx !== -1) pendingLocalStockRef.current.splice(idx, 1)
+          }, LOCAL_SOCKET_ECHO_TTL_MS)
+          ;(expiry as any)?.unref?.()
+          pendingLocalStockRef.current[stockIdx] = expiry
+        }
+
+        const stockDelta = extractOrderStockDelta(res?.data)
+        if (stockDelta) {
+          applyStockDeltaRef.current(stockDelta)
+        } else {
+          await loadProductsRef.current()
+        }
+      } catch (e: any) {
+        activeCancelHandoffIdsRef.current.delete(id)
+        handoff.cancel()
+        const existing = pendingLocalCancelsRef.current.get(id)
+        if (existing) clearTimeout(existing)
+        pendingLocalCancelsRef.current.delete(id)
+        const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
+        if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
+        toast({
+          title: 'Error',
+          description: e?.response?.data?.detail ?? 'Failed to cancel order',
+          variant: 'destructive',
+        })
       }
-
-      const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
-      if (stockIdx !== -1) {
-        const expiry = setTimeout(() => {
-          const idx = pendingLocalStockRef.current.indexOf(expiry)
-          if (idx !== -1) pendingLocalStockRef.current.splice(idx, 1)
-        }, LOCAL_SOCKET_ECHO_TTL_MS)
-        ;(expiry as any)?.unref?.()
-        pendingLocalStockRef.current[stockIdx] = expiry
-      }
-
-      const stockDelta = extractOrderStockDelta(res?.data)
-      if (stockDelta) {
-        applyStockDeltaRef.current(stockDelta)
-      } else {
-        await loadProductsRef.current()
-      }
-    } catch (e: any) {
-      const existing = pendingLocalCancelsRef.current.get(id)
-      if (existing) clearTimeout(existing)
-      pendingLocalCancelsRef.current.delete(id)
-      const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
-      if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
-      toast({
-        title: 'Error',
-        description: e?.response?.data?.detail ?? 'Failed to cancel order',
-        variant: 'destructive',
-      })
-    }
-  }, [])
+    },
+    [buildCancelFocusTargets, prepareFocusHandoff]
+  )
 
   const handleSelectOrder = useCallback((order: OrderSummary) => {
     setSelectedId(order.id)
@@ -678,33 +839,56 @@ export default function Orders() {
   }, [])
 
   const handleStatusFilterChange = useCallback((value: string) => {
+    paginationHandoffRef.current?.cancel()
+    paginationHandoffRef.current = null
     setStatusFilter(value)
     setPage(1)
   }, [])
 
   const handleDateFilterChange = useCallback((value: string) => {
+    paginationHandoffRef.current?.cancel()
+    paginationHandoffRef.current = null
     setDateFilter(value)
     setPage(1)
   }, [])
 
   const handlePageSizeChange = useCallback((size: number) => {
+    paginationHandoffRef.current?.cancel()
+    paginationHandoffRef.current = null
     setPageSize(size)
     setPage(1)
   }, [])
 
   const handleClearFilters = useCallback(() => {
+    paginationHandoffRef.current?.cancel()
+    paginationHandoffRef.current = null
+    handoffFocus(clearFiltersButtonRef, '#orders-status-filter')
     setStatusFilter('')
     setDateFilter('')
     setPage(1)
-  }, [])
+  }, [handoffFocus])
 
   const handlePrevPage = useCallback(() => {
+    if (viewStateRef.current.page <= 1) return
+    paginationHandoffRef.current?.cancel()
+    paginationHandoffRef.current = prepareFocusHandoff(prevPageButtonRef, () => [
+      nextPageButtonRef,
+      ordersHeadingRef,
+      '#orders-heading',
+    ])
     setPage(p => Math.max(1, p - 1))
-  }, [])
+  }, [prepareFocusHandoff])
 
   const handleNextPage = useCallback(() => {
+    if (!viewStateRef.current.hasMore) return
+    paginationHandoffRef.current?.cancel()
+    paginationHandoffRef.current = prepareFocusHandoff(nextPageButtonRef, () => [
+      prevPageButtonRef,
+      ordersHeadingRef,
+      '#orders-heading',
+    ])
     setPage(p => p + 1)
-  }, [])
+  }, [prepareFocusHandoff])
 
   const selected = useMemo(
     () => (selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null),
@@ -715,7 +899,14 @@ export default function Orders() {
 
   return (
     <div className="p-6 space-y-8">
-      <h1 className="text-2xl font-bold mb-4">Orders</h1>
+      <h1
+        id="orders-heading"
+        ref={ordersHeadingRef}
+        tabIndex={-1}
+        className="text-2xl font-bold mb-4"
+      >
+        Orders
+      </h1>
 
       {/* Create New Order */}
       <OrderCreator
@@ -734,9 +925,16 @@ export default function Orders() {
           onDateFilterChange={handleDateFilterChange}
           onPageSizeChange={handlePageSizeChange}
           onClearFilters={handleClearFilters}
+          clearButtonRef={clearFiltersButtonRef}
         />
 
-        <OrdersTable orders={orders} onSelect={handleSelectOrder} onCancel={cancelOrder} />
+        <OrdersTable
+          orders={orders}
+          onSelect={handleSelectOrder}
+          onCancel={cancelOrder}
+          onRegisterViewButton={registerViewButton}
+          onRegisterCancelButton={registerCancelButton}
+        />
 
         <OrdersPagination
           page={page}
@@ -744,6 +942,8 @@ export default function Orders() {
           hasMore={hasMore}
           onPrevPage={handlePrevPage}
           onNextPage={handleNextPage}
+          prevButtonRef={prevPageButtonRef}
+          nextButtonRef={nextPageButtonRef}
         />
       </section>
 
