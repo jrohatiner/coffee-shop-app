@@ -1,10 +1,10 @@
 # AGENTS.md — Coffee Shop Ordering System
 
-This file defines repository conventions, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
+This file defines repository conventions, pre-commit guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
 
 ## Repository Structure & Architecture
 
-- `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and `python-socketio` ASGI backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `cloudbuild.yaml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
+- `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and `python-socketio` ASGI backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `cloudbuild.yaml`, `pyproject.toml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
   - REST routers in `backend/app/main.py`: `/auth`, `/dashboard`, `/orders`, `/inventory`, `/reports`, `/users`.
   - Socket.IO ASGI endpoint in `backend/app/websockets.py`: mounted at `/ws` with `socketio_path='/ws/socket.io'`.
 - `frontend/` — Next.js `14.1.0` (Pages Router, TypeScript, Tailwind CSS) frontend (`package.json`, `tsconfig.json`, `next.config.js`, `firebase.json`, `cloudbuild.yaml`) configured for static HTML export (`output: 'export'`, `images: { unoptimized: true }`) into `frontend/out` and deployed to Firebase Hosting (`cleanUrls: true`).
@@ -23,6 +23,53 @@ This file defines repository conventions, architecture details, and exact local 
 - `NEXT_PUBLIC_API_URL`: Base URL for Axios REST calls (`frontend/lib/api.ts`). Required for release builds; never falls back to `http://localhost:8000` in production (`NODE_ENV=production`).
 - `NEXT_PUBLIC_SOCKET_URL`: Optional direct origin for Socket.IO (`frontend/hooks/useSocket.ts`) to connect directly to Cloud Run (`coffee-backend`) when CDN rewrites strip WebSocket `Upgrade` headers. Falls back to `NEXT_PUBLIC_API_URL` (or same-origin `/ws/socket.io` when relative/unset in production).
 - `FIREBASE_PROJECT_ID`: Explicit target Firebase project passed via `--project "$FIREBASE_PROJECT_ID"` (`frontend/.firebaserc` intentionally omits hardcoded project aliases).
+
+## Pre-commit and Local Guardrails
+
+Install Git pre-commit hooks locally so every commit enforces formatting, linting, type checking, YAML syntax, and whitespace rules:
+
+```bash
+pre-commit install
+```
+
+Run the full pre-commit suite across all tracked files:
+
+```bash
+pre-commit run --all-files
+```
+
+### Python Lint and Format (Ruff)
+
+Run Ruff lint and format checks targeting `backend/` (configured via `backend/pyproject.toml` for Python 3.11):
+
+```bash
+ruff check --config backend/pyproject.toml backend
+ruff format --check --config backend/pyproject.toml backend
+```
+
+Apply automatic lint fixes and formatting:
+
+```bash
+ruff check --fix --config backend/pyproject.toml backend
+ruff format --config backend/pyproject.toml backend
+```
+
+### Python Static Type Checking (Mypy)
+
+Run strict Mypy type checks against `backend/`:
+
+```bash
+mypy --config-file backend/pyproject.toml backend
+```
+
+### Markdown Formatting (Prettier)
+
+Check or format Markdown files with Prettier (scoped to `*.md` files):
+
+```bash
+prettier --check "**/*.md"
+prettier --write "**/*.md"
+```
 
 ## Local Verification Commands (CI Parity)
 
@@ -93,22 +140,32 @@ docker run --rm -e JWT_SECRET="cloudbuild-test-jwt-secret-key" coffee-backend:lo
 '
 ```
 
-### 6. Frontend Setup, Typecheck, Unit Tests, and CI Build
+### 6. Frontend Setup, Typecheck, Lint, Format, and Tests (`frontend/`)
 
 Note that `.gitignore` excludes `package-lock.json`; pass `--no-package-lock` when installing dependencies locally so git working trees stay clean:
 
 ```bash
 cd frontend
 npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
-```
 
-Run strict TypeScript checks, unit test suites, and the CI production build (`frontend-build` in `.github/workflows/ci.yml` and `verify` in `.github/workflows/deploy-frontend.yml`):
+# Strict TypeScript typechecking (tsc --noEmit)
+npm run typecheck
 
-```bash
-cd frontend
-npx tsc --noEmit
+# Non-interactive Next.js ESLint check (next lint --max-warnings 0)
+npm run lint
+
+# Prettier formatting check (prettier --check .)
+npm run format:check
+
+# Auto-format frontend files with Prettier (prettier --write .)
+npm run format
+
+# Unit and E2E tests
 npm run test:unit
 node --test __tests__/orderState.test.mjs
+npm run test:e2e
+
+# Production Next.js build (matches CI frontend-build)
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
@@ -205,6 +262,8 @@ npx --yes firebase-tools deploy --only hosting --project "$FIREBASE_PROJECT_ID"
 
 ## Guardrails
 
+- Keep `"strict": true`, `"skipLibCheck": false`, `"noUnusedLocals": true`, and `"noUnusedParameters": true` enabled in `frontend/tsconfig.json`.
+- Avoid explicit `any` annotations; share API payload interfaces via `frontend/types/api.ts` (matching `backend/app/schemas.py`) and narrow `unknown` errors with `axios.isAxiosError`.
 - Do not add workflow path filters to `.github/workflows/ci.yml` that could skip required branch-protection checks.
 - Keep CI token permissions read-only (`contents: read`) unless a job explicitly publishes artifacts or attestations.
 - Never allow `http://localhost:8000` fallbacks in production frontend builds (`frontend/out`).

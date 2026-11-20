@@ -14,7 +14,9 @@ export const Table = ({
 }: TableProps) => (
   <table className={`w-full border ${className}`.trim()} {...props}>
     {caption ? (
-      <caption className={hideCaption ? 'sr-only' : 'p-2 text-left font-semibold'}>
+      <caption
+        className={hideCaption ? 'sr-only' : 'p-2 text-left font-semibold'}
+      >
         {caption}
       </caption>
     ) : null}
@@ -69,7 +71,11 @@ export const TableRowHeader = ({
   className = '',
   ...props
 }: React.ThHTMLAttributes<HTMLTableCellElement>) => (
-  <th scope={scope} className={`text-left font-normal ${className}`.trim()} {...props}>
+  <th
+    scope={scope}
+    className={`text-left font-normal ${className}`.trim()}
+    {...props}
+  >
     {children}
   </th>
 )

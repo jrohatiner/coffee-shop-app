@@ -87,7 +87,9 @@ export const TabsList = ({
 
     const tablist = e.currentTarget
     const enabledTabs = Array.from(
-      tablist.querySelectorAll<HTMLButtonElement>('[role="tab"]:not([disabled])')
+      tablist.querySelectorAll<HTMLButtonElement>(
+        '[role="tab"]:not([disabled])'
+      )
     ).filter(
       (tab) =>
         tab.getAttribute('aria-disabled') !== 'true' &&
@@ -100,9 +102,7 @@ export const TabsList = ({
       '[role="tab"]'
     ) as HTMLButtonElement | null
     const activeElement = tablist.ownerDocument?.activeElement as
-      | HTMLButtonElement
-      | null
-      | undefined
+      HTMLButtonElement | null | undefined
 
     let currentIndex = targetTab ? enabledTabs.indexOf(targetTab) : -1
     if (currentIndex === -1 && activeElement) {
@@ -157,7 +157,10 @@ export type TabsTriggerProps = Omit<
   children: React.ReactNode
 }
 
-export const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
+export const TabsTrigger = React.forwardRef<
+  HTMLButtonElement,
+  TabsTriggerProps
+>(
   (
     {
       value,
@@ -171,8 +174,11 @@ export const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>
     },
     ref
   ) => {
-    const { value: selectedValue, onValueChange, baseId } =
-      useTabsContext('TabsTrigger')
+    const {
+      value: selectedValue,
+      onValueChange,
+      baseId,
+    } = useTabsContext('TabsTrigger')
     const isSelected = selectedValue === value
     const triggerId = id ?? getTriggerId(baseId, value)
     const panelId = getPanelId(baseId, value)

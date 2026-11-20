@@ -8,7 +8,7 @@ import Navbar from '../components/Navbar'
 import { AuthProvider } from '../hooks/useAuth'
 import { useRouter } from 'next/router'
 
-export type PageWithTitle<P = {}, IP = P> = NextPage<P, IP> & {
+export type PageWithTitle<P = object, IP = P> = NextPage<P, IP> & {
   pageTitle?: string
 }
 

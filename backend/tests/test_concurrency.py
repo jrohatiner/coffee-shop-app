@@ -3,7 +3,7 @@ import inspect
 import os
 import threading
 import time
-from typing import Any, List, Tuple
+from typing import Any
 
 import httpx
 import pytest
@@ -37,7 +37,7 @@ def _run_async(coro):
 
 @pytest.fixture()
 def pooled_db(tmp_path, monkeypatch):
-    """Bind app.database to a QueuePool(5, 10) SQLite database matching production pool limits."""
+    """Bind app.database to a QueuePool(5, 10) SQLite DB matching prod limits."""
     db_file = tmp_path / "coffee_test.db"
     test_engine = create_engine(
         f"sqlite:///{db_file}",
@@ -93,12 +93,12 @@ def pooled_db(tmp_path, monkeypatch):
         test_engine.dispose()
 
 
-def _auth_headers(username: str = "manager") -> dict:
+def _auth_headers(username: str = "manager") -> dict[str, str]:
     token = auth.create_access_token({"sub": username})
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connections_in_emit(
+def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connections_in_emit(  # noqa: E501
     pooled_db, monkeypatch
 ):
     """
@@ -123,10 +123,12 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
         "delete_inventory_item",
     }
 
-    sql_threads: List[Tuple[str, str]] = []
-    emit_pool_snapshots: List[Tuple[str, Any, int]] = []
+    sql_threads: list[tuple[str, str]] = []
+    emit_pool_snapshots: list[tuple[str, Any, int]] = []
 
-    def _before_cursor_execute(_conn, _cursor, statement, _params, _context, _executemany):
+    def _before_cursor_execute(
+        _conn, _cursor, statement, _params, _context, _executemany
+    ):
         sql_threads.append((threading.current_thread().name, statement))
 
     event.listen(test_engine, "before_cursor_execute", _before_cursor_execute)
@@ -139,7 +141,9 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
     async def _exercise_all_five_routes():
         assert threading.current_thread().name == "MainThread"
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             # 1. POST /inventory/ (create_inventory_item)
             sql_threads.clear()
             emit_pool_snapshots.clear()
@@ -154,7 +158,9 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert created_product["price"] == 4.75
             assert created_product["stock"] == 40
             assert len(sql_threads) > 0
-            assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
+            assert [
+                stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"
+            ] == []
             assert emit_pool_snapshots == [
                 (
                     "stock_update",
@@ -180,7 +186,9 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
                 "stock": 35,
             }
             assert len(sql_threads) > 0
-            assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
+            assert [
+                stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"
+            ] == []
             assert emit_pool_snapshots == [
                 (
                     "stock_update",
@@ -212,7 +220,9 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert created_order["items"][1]["product"]["id"] == 2
             assert created_order["items"][1]["product"]["stock"] == 97
             assert len(sql_threads) > 0
-            assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
+            assert [
+                stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"
+            ] == []
             assert emit_pool_snapshots == [
                 (
                     "new_order",
@@ -249,7 +259,9 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert cancelled_order["items"][0]["product"]["stock"] == 100
             assert cancelled_order["items"][1]["product"]["stock"] == 100
             assert len(sql_threads) > 0
-            assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
+            assert [
+                stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"
+            ] == []
             assert emit_pool_snapshots == [
                 (
                     "stock_update",
@@ -284,7 +296,9 @@ def test_async_routes_execute_zero_sql_on_main_thread_and_hold_zero_pool_connect
             assert resp.status_code == 200
             assert resp.json() == {"detail": "Product deleted"}
             assert len(sql_threads) > 0
-            assert [stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"] == []
+            assert [
+                stmt for thread_name, stmt in sql_threads if thread_name == "MainThread"
+            ] == []
             assert emit_pool_snapshots == [
                 (
                     "stock_update",
@@ -315,13 +329,13 @@ def test_15_concurrent_inventory_updates_paused_in_emit_do_not_block_16th_get_in
         in_emit = 0
         all_15_paused = asyncio.Event()
         release_broadcasts = asyncio.Event()
-        checked_out_during_emit: List[int] = []
+        checked_out_during_emit: list[tuple[int, int]] = []
 
         async def _paused_emit(event_name: str, data: Any = None, *args, **kwargs):
             nonlocal in_emit
             in_emit += 1
-            # Completed transactions that have reached sio.emit hold 0 connections;
-            # only the remaining (15 - in_emit) still-running worker transactions may hold one.
+            # Completed transactions reaching sio.emit hold 0 connections; only
+            # remaining (15 - in_emit) running worker transactions may hold one.
             checked_out_during_emit.append((in_emit, test_engine.pool.checkedout()))
             if in_emit == 15:
                 all_15_paused.set()
@@ -330,7 +344,9 @@ def test_15_concurrent_inventory_updates_paused_in_emit_do_not_block_16th_get_in
         monkeypatch.setattr(sio, "emit", _paused_emit)
 
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             put_tasks = [
                 asyncio.create_task(
                     client.put(
@@ -357,7 +373,7 @@ def test_15_concurrent_inventory_updates_paused_in_emit_do_not_block_16th_get_in
             )
             assert checked_out_during_emit[-1] == (15, 0)
 
-            # 16th concurrent GET /inventory/ must succeed without waiting on release_broadcasts
+            # 16th concurrent GET /inventory/ succeeds without waiting on broadcasts
             start = time.perf_counter()
             get_resp = await asyncio.wait_for(
                 client.get("/inventory/", headers=headers),
@@ -406,7 +422,9 @@ def test_event_loop_stays_responsive_during_concurrent_orders_with_query_latency
 
     async def _run():
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             # Warm up OpenAPI schema cache so we measure pure event-loop responsiveness
             warmup = await client.get("/openapi.json")
             assert warmup.status_code == 200
@@ -450,12 +468,12 @@ def test_validation_errors_and_idempotency_preserve_messages_and_emit_no_events(
 ):
     """
     Requirement 5 & Acceptance criterion 4:
-    Failed validations return exact status codes and error messages without emitting live events
-    or leaking pooled connections, and cancelling an already-cancelled order is idempotent.
+    Failed validations return exact status codes and error messages without emitting
+    live events or leaking pooled connections, and repeat cancel is idempotent.
     """
     test_engine, _ = pooled_db
     headers = _auth_headers("manager")
-    emitted: List[Tuple[str, Any]] = []
+    emitted: list[tuple[str, Any]] = []
 
     async def _record_emit(event_name: str, data: Any = None, *args, **kwargs):
         emitted.append((event_name, data))
@@ -464,11 +482,16 @@ def test_validation_errors_and_idempotency_preserve_messages_and_emit_no_events(
 
     async def _run():
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             # Missing product in order
             resp = await client.post(
                 "/orders/",
-                json={"status": "pending", "items": [{"product_id": 9999, "quantity": 1}]},
+                json={
+                    "status": "pending",
+                    "items": [{"product_id": 9999, "quantity": 1}],
+                },
                 headers=headers,
             )
             assert resp.status_code == 400
@@ -488,7 +511,10 @@ def test_validation_errors_and_idempotency_preserve_messages_and_emit_no_events(
             # Insufficient stock
             resp = await client.post(
                 "/orders/",
-                json={"status": "pending", "items": [{"product_id": 1, "quantity": 500}]},
+                json={
+                    "status": "pending",
+                    "items": [{"product_id": 1, "quantity": 500}],
+                },
                 headers=headers,
             )
             assert resp.status_code == 400
@@ -535,7 +561,7 @@ def test_validation_errors_and_idempotency_preserve_messages_and_emit_no_events(
             assert resp.json()["detail"] == "Product not found"
             assert emitted == []
 
-            # Create valid order referencing product 1, then verify product 1 cannot be deleted
+            # Create valid order referencing product 1, then verify deletion is blocked
             order_resp = await client.post(
                 "/orders/",
                 json={"status": "pending", "items": [{"product_id": 1, "quantity": 4}]},
@@ -553,7 +579,7 @@ def test_validation_errors_and_idempotency_preserve_messages_and_emit_no_events(
             )
             assert emitted == []
 
-            # Cancel once -> emits stock_update & order_cancelled; cancel again -> idempotent, 0 events
+            # Cancel once -> emits stock_update & order_cancelled; second -> 0 events
             cancel_1 = await client.post(f"/orders/{order_id}/cancel", headers=headers)
             assert cancel_1.status_code == 200
             cancel_1_json = cancel_1.json()
@@ -590,14 +616,16 @@ def test_validation_errors_and_idempotency_preserve_messages_and_emit_no_events(
 
 
 def test_sync_routes_and_auth_continue_working_unchanged(pooled_db):
-    """Verify existing synchronous def routes work seamlessly with detached auth User."""
+    """Verify sync def routes work seamlessly with detached auth User."""
     test_engine, _ = pooled_db
     manager_headers = _auth_headers("manager")
     staff_headers = _auth_headers("staff")
 
     async def _run():
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             # Auth /me and invalid token
             me_resp = await client.get("/auth/me", headers=manager_headers)
             assert me_resp.status_code == 200
@@ -624,7 +652,11 @@ def test_sync_routes_and_auth_continue_working_unchanged(pooled_db):
 
             create_u = await client.post(
                 "/users/",
-                json={"username": "barista2", "password": "secret", "is_manager": False},
+                json={
+                    "username": "barista2",
+                    "password": "secret",
+                    "is_manager": False,
+                },
                 headers=manager_headers,
             )
             assert create_u.status_code == 200

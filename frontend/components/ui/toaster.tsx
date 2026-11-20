@@ -65,7 +65,9 @@ const ToastCard = ({ item, onDismiss, onPause, onResume }: ToastCardProps) => {
       <div className="flex items-start gap-2.5 min-w-0">
         {isDestructive ? <AlertIcon /> : <StatusIcon />}
         <div className="min-w-0">
-          <div className="font-semibold text-sm leading-5 break-words">{item.title}</div>
+          <div className="font-semibold text-sm leading-5 break-words">
+            {item.title}
+          </div>
           {item.description && (
             <div
               className={`mt-1 text-sm leading-5 break-words ${
@@ -101,8 +103,15 @@ export interface ToasterViewProps {
   onResume: (id: string, reason: 'hover' | 'focus') => void
 }
 
-export const ToasterView = ({ toasts, onDismiss, onPause, onResume }: ToasterViewProps) => {
-  const destructiveToasts = toasts.filter((item) => item.variant === 'destructive')
+export const ToasterView = ({
+  toasts,
+  onDismiss,
+  onPause,
+  onResume,
+}: ToasterViewProps) => {
+  const destructiveToasts = toasts.filter(
+    (item) => item.variant === 'destructive'
+  )
   const defaultToasts = toasts.filter((item) => item.variant !== 'destructive')
 
   return (

@@ -1,5 +1,4 @@
 import axios from 'axios'
-
 const resolveApiBaseUrl = (): string => {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim()
   if (configured) {
@@ -10,10 +9,10 @@ const resolveApiBaseUrl = (): string => {
 
 const api = axios.create({ baseURL: resolveApiBaseUrl() })
 
-api.interceptors.request.use((cfg)=>{
-  if(typeof window !== 'undefined'){
+api.interceptors.request.use((cfg) => {
+  if (typeof window !== 'undefined') {
     const token = localStorage.getItem('token')
-    if(token && cfg.headers) cfg.headers.Authorization = `Bearer ${token}`
+    if (token && cfg.headers) cfg.headers.Authorization = `Bearer ${token}`
   }
   return cfg
 })

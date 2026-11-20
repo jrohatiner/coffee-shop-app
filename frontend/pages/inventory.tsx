@@ -6,6 +6,7 @@ import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { useSocket } from '../hooks/useSocket'
+import type { Socket } from 'socket.io-client'
 import {
   hasDeleteDetail,
   parseStockDelta,
@@ -13,6 +14,7 @@ import {
   reconcileProductsDelta,
   toProductItem,
 } from '../lib/orderState'
+import { getApiErrorDetail, unrefTimer } from '../types/api'
 
 export type Product = ProductItem
 
@@ -23,9 +25,17 @@ export const CreateProductForm = memo(function CreateProductForm({
   onSubmitCreate,
 }: {
   onCreated: (created?: unknown) => void
-  onSubmitCreate?: (payload: { name: string; price: number; stock: number }) => Promise<void>
+  onSubmitCreate?: (payload: {
+    name: string
+    price: number
+    stock: number
+  }) => Promise<void>
 }) {
-  const [newItem, setNewItem] = useState<{ name: string; price: string; stock: string }>({
+  const [newItem, setNewItem] = useState<{
+    name: string
+    price: string
+    stock: string
+  }>({
     name: '',
     price: '',
     stock: '',
@@ -36,8 +46,10 @@ export const CreateProductForm = memo(function CreateProductForm({
       toast({ title: 'Name required', variant: 'destructive' })
       return
     }
-    const parsedPrice = newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
-    const parsedStock = newItem.stock.trim() === '' ? 0 : parseInt(newItem.stock, 10)
+    const parsedPrice =
+      newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
+    const parsedStock =
+      newItem.stock.trim() === '' ? 0 : parseInt(newItem.stock, 10)
     const payload = {
       name: newItem.name,
       price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
@@ -52,10 +64,10 @@ export const CreateProductForm = memo(function CreateProductForm({
       }
       toast({ title: 'Product created', description: newItem.name })
       setNewItem({ name: '', price: '', stock: '' })
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: 'Error',
-        description: e?.response?.data?.detail ?? 'Failed to create',
+        description: getApiErrorDetail(e, 'Failed to create'),
         variant: 'destructive',
       })
     }
@@ -69,8 +81,11 @@ export const CreateProductForm = memo(function CreateProductForm({
           label="Name"
           placeholder="e.g. Flat White"
           value={newItem.name}
-          onChange={e =>
-            setNewItem(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))
+          onChange={(e) =>
+            setNewItem((prev) => ({
+              ...prev,
+              name: (e.target as HTMLInputElement).value,
+            }))
           }
         />
         <Input
@@ -80,8 +95,11 @@ export const CreateProductForm = memo(function CreateProductForm({
           min={0}
           placeholder="e.g. 4.50"
           value={newItem.price}
-          onChange={e =>
-            setNewItem(prev => ({ ...prev, price: (e.target as HTMLInputElement).value }))
+          onChange={(e) =>
+            setNewItem((prev) => ({
+              ...prev,
+              price: (e.target as HTMLInputElement).value,
+            }))
           }
         />
         <Input
@@ -90,8 +108,11 @@ export const CreateProductForm = memo(function CreateProductForm({
           min={0}
           placeholder="e.g. 50"
           value={newItem.stock}
-          onChange={e =>
-            setNewItem(prev => ({ ...prev, stock: (e.target as HTMLInputElement).value }))
+          onChange={(e) =>
+            setNewItem((prev) => ({
+              ...prev,
+              stock: (e.target as HTMLInputElement).value,
+            }))
           }
         />
         <Button onClick={create}>Add Product</Button>
@@ -131,7 +152,8 @@ export const ProductRow = memo(function ProductRow({
 
   const handleSave = () => {
     const parsedPrice = draft.price.trim() === '' ? 0 : parseFloat(draft.price)
-    const parsedStock = draft.stock.trim() === '' ? 0 : parseInt(draft.stock, 10)
+    const parsedStock =
+      draft.stock.trim() === '' ? 0 : parseInt(draft.stock, 10)
     onSave({
       ...product,
       name: draft.name,
@@ -153,8 +175,11 @@ export const ProductRow = memo(function ProductRow({
           labelId={nameLabelId}
           aria-labelledby={`${legendId} ${nameLabelId}`}
           value={draft.name}
-          onChange={e =>
-            setDraft(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))
+          onChange={(e) =>
+            setDraft((prev) => ({
+              ...prev,
+              name: (e.target as HTMLInputElement).value,
+            }))
           }
         />
         <Input
@@ -164,8 +189,11 @@ export const ProductRow = memo(function ProductRow({
           type="number"
           step="0.01"
           value={draft.price}
-          onChange={e =>
-            setDraft(prev => ({ ...prev, price: (e.target as HTMLInputElement).value }))
+          onChange={(e) =>
+            setDraft((prev) => ({
+              ...prev,
+              price: (e.target as HTMLInputElement).value,
+            }))
           }
         />
         <Input
@@ -174,8 +202,11 @@ export const ProductRow = memo(function ProductRow({
           aria-labelledby={`${legendId} ${stockLabelId}`}
           type="number"
           value={draft.stock}
-          onChange={e =>
-            setDraft(prev => ({ ...prev, stock: (e.target as HTMLInputElement).value }))
+          onChange={(e) =>
+            setDraft((prev) => ({
+              ...prev,
+              stock: (e.target as HTMLInputElement).value,
+            }))
           }
         />
       </div>
@@ -183,7 +214,11 @@ export const ProductRow = memo(function ProductRow({
         <Button type="button" contextLabel={productLabel} onClick={handleSave}>
           Save
         </Button>
-        <Button type="button" contextLabel={productLabel} onClick={() => onDelete(product.id)}>
+        <Button
+          type="button"
+          contextLabel={productLabel}
+          onClick={() => onDelete(product.id)}
+        >
           Delete
         </Button>
       </div>
@@ -199,7 +234,7 @@ export default function Inventory() {
   const load = useCallback(() => {
     return api
       .get('/inventory')
-      .then(r => setProducts(r.data))
+      .then((r) => setProducts(r.data))
       .catch(() => {})
   }, [])
 
@@ -209,46 +244,52 @@ export default function Inventory() {
 
   useEffect(() => {
     return () => {
-      pendingLocalStockRef.current.forEach(t => clearTimeout(t))
+      pendingLocalStockRef.current.forEach((t) => clearTimeout(t))
       pendingLocalStockRef.current = []
     }
   }, [])
 
-  const armLocalEchoToken = useCallback((token: ReturnType<typeof setTimeout>) => {
-    const idx = pendingLocalStockRef.current.indexOf(token)
-    if (idx !== -1) {
-      const expiry = setTimeout(() => {
-        const expIdx = pendingLocalStockRef.current.indexOf(expiry)
-        if (expIdx !== -1) pendingLocalStockRef.current.splice(expIdx, 1)
-      }, LOCAL_SOCKET_ECHO_TTL_MS)
-      ;(expiry as any)?.unref?.()
-      pendingLocalStockRef.current[idx] = expiry
-    }
-  }, [])
+  const armLocalEchoToken = useCallback(
+    (token: ReturnType<typeof setTimeout>) => {
+      const idx = pendingLocalStockRef.current.indexOf(token)
+      if (idx !== -1) {
+        const expiry = setTimeout(() => {
+          const expIdx = pendingLocalStockRef.current.indexOf(expiry)
+          if (expIdx !== -1) pendingLocalStockRef.current.splice(expIdx, 1)
+        }, LOCAL_SOCKET_ECHO_TTL_MS)
+        unrefTimer(expiry)
+        pendingLocalStockRef.current[idx] = expiry
+      }
+    },
+    []
+  )
 
-  const disarmLocalEchoToken = useCallback((token: ReturnType<typeof setTimeout>) => {
-    const idx = pendingLocalStockRef.current.indexOf(token)
-    if (idx !== -1) {
-      clearTimeout(pendingLocalStockRef.current[idx])
-      pendingLocalStockRef.current.splice(idx, 1)
-    }
-  }, [])
+  const disarmLocalEchoToken = useCallback(
+    (token: ReturnType<typeof setTimeout>) => {
+      const idx = pendingLocalStockRef.current.indexOf(token)
+      if (idx !== -1) {
+        clearTimeout(pendingLocalStockRef.current[idx])
+        pendingLocalStockRef.current.splice(idx, 1)
+      }
+    },
+    []
+  )
 
   const handleSocket = useCallback(
-    (s: any) => {
+    (s: Socket) => {
       s.on('stock_update', (payload?: unknown) => {
         const delta = parseStockDelta(payload)
         if (pendingLocalStockRef.current.length > 0) {
           const timer = pendingLocalStockRef.current.shift()
           if (timer) clearTimeout(timer)
           if (delta) {
-            setProducts(prev => reconcileProductsDelta(prev, delta))
+            setProducts((prev) => reconcileProductsDelta(prev, delta))
           }
           return
         }
         toast({ title: 'Inventory Changed' })
         if (delta) {
-          setProducts(prev => reconcileProductsDelta(prev, delta))
+          setProducts((prev) => reconcileProductsDelta(prev, delta))
           return
         }
         load()
@@ -269,8 +310,11 @@ export default function Inventory() {
         const created = toProductItem(res?.data)
         if (created) {
           armLocalEchoToken(stockEchoToken)
-          setProducts(prev =>
-            reconcileProductsDelta(prev, { updated: [created], deleted_ids: [] })
+          setProducts((prev) =>
+            reconcileProductsDelta(prev, {
+              updated: [created],
+              deleted_ids: [],
+            })
           )
         } else {
           disarmLocalEchoToken(stockEchoToken)
@@ -292,9 +336,11 @@ export default function Inventory() {
           const idx = pendingLocalStockRef.current.indexOf(expiry)
           if (idx !== -1) pendingLocalStockRef.current.splice(idx, 1)
         }, LOCAL_SOCKET_ECHO_TTL_MS)
-        ;(expiry as any)?.unref?.()
+        unrefTimer(expiry)
         pendingLocalStockRef.current.push(expiry)
-        setProducts(prev => reconcileProductsDelta(prev, { updated: [parsed], deleted_ids: [] }))
+        setProducts((prev) =>
+          reconcileProductsDelta(prev, { updated: [parsed], deleted_ids: [] })
+        )
         return
       }
       load()
@@ -313,8 +359,11 @@ export default function Inventory() {
         const updated = toProductItem(res?.data)
         if (updated) {
           armLocalEchoToken(stockEchoToken)
-          setProducts(prev =>
-            reconcileProductsDelta(prev, { updated: [updated], deleted_ids: [] })
+          setProducts((prev) =>
+            reconcileProductsDelta(prev, {
+              updated: [updated],
+              deleted_ids: [],
+            })
           )
           toast({ title: 'Saved', description: updated.name })
         } else {
@@ -324,7 +373,11 @@ export default function Inventory() {
         }
       } catch {
         disarmLocalEchoToken(stockEchoToken)
-        toast({ title: 'Error', description: 'Failed to save', variant: 'destructive' })
+        toast({
+          title: 'Error',
+          description: 'Failed to save',
+          variant: 'destructive',
+        })
       }
     },
     [armLocalEchoToken, disarmLocalEchoToken, load]
@@ -340,18 +393,20 @@ export default function Inventory() {
         const res = await api.delete(`/inventory/${id}`)
         if (hasDeleteDetail(res?.data)) {
           armLocalEchoToken(stockEchoToken)
-          setProducts(prev => reconcileProductsDelta(prev, { updated: [], deleted_ids: [id] }))
+          setProducts((prev) =>
+            reconcileProductsDelta(prev, { updated: [], deleted_ids: [id] })
+          )
           toast({ title: 'Product deleted' })
         } else {
           disarmLocalEchoToken(stockEchoToken)
           toast({ title: 'Product deleted' })
           load()
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         disarmLocalEchoToken(stockEchoToken)
         toast({
           title: 'Error',
-          description: e?.response?.data?.detail ?? 'Failed to delete',
+          description: getApiErrorDetail(e, 'Failed to delete'),
           variant: 'destructive',
         })
       }
@@ -366,12 +421,15 @@ export default function Inventory() {
       <h1 className="text-2xl font-bold">Inventory</h1>
 
       {/* Create New Product */}
-      <CreateProductForm onCreated={handleCreated} onSubmitCreate={createProduct} />
+      <CreateProductForm
+        onCreated={handleCreated}
+        onSubmitCreate={createProduct}
+      />
 
       {/* Existing Products */}
       <section className="space-y-3">
         <h2 className="font-semibold text-lg">Products</h2>
-        {products.map(p => (
+        {products.map((p) => (
           <ProductRow key={p.id} product={p} onSave={save} onDelete={del} />
         ))}
       </section>
