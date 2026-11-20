@@ -9,6 +9,8 @@ export interface ToastInput {
   duration?: number
 }
 
+export type ToastOptions = ToastInput
+
 export interface ToastItem {
   id: string
   title: string
@@ -62,9 +64,11 @@ const scheduleTimer = (id: string, record: TimerRecord) => {
     return
   }
   record.startedAt = Date.now()
-  record.timeoutId = setTimeout(() => {
+  const timeout = setTimeout(() => {
     dismissToast(id)
   }, record.remainingMs)
+  ;(timeout as any)?.unref?.()
+  record.timeoutId = timeout
 }
 
 export const subscribeToasts = (listener: () => void) => {
@@ -166,12 +170,7 @@ export const toast = ({
   description,
   variant = 'default',
   duration,
-}: {
-  title: string
-  description?: string
-  variant?: 'default' | 'destructive'
-  duration?: number
-}) => {
+}: ToastInput) => {
   const now = Date.now()
   const resolvedDuration =
     duration ?? (variant === 'destructive' ? DESTRUCTIVE_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS)
@@ -249,4 +248,3 @@ export const useToast = () => {
     resumeToast,
   }
 }
-

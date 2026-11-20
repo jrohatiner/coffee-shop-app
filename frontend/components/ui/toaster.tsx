@@ -177,3 +177,4 @@ export const Toaster = () => {
   )
 }
 
+export default Toaster

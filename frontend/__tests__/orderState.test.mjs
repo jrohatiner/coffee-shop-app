@@ -22,7 +22,16 @@ vm.runInThisContext(
   `(function(exports, module) { ${transpiled.outputText} })`,
 )(exportsObj, moduleObj)
 
-const { toOrderSummary, reconcileCreatedOrder, reconcileCancelledOrder } = moduleObj.exports
+const {
+  toOrderSummary,
+  reconcileCreatedOrder,
+  reconcileCancelledOrder,
+  toProductItem,
+  hasDeleteDetail,
+  parseStockDelta,
+  extractOrderStockDelta,
+  reconcileProductsDelta,
+} = moduleObj.exports
 
 // 1. Strips nested items and user_id from full OrderOut response
 {
@@ -153,6 +162,90 @@ const { toOrderSummary, reconcileCreatedOrder, reconcileCancelledOrder } = modul
     { page: 1, pageSize: 2, hasMore: true },
   )
   assert.equal(olderCancel, page1)
+}
+
+// 7. Product delta merge preserves unchanged object references, appends new products, and deletes removed IDs
+{
+  const p1 = { id: 1, name: 'Espresso', price: 3.0, stock: 10 }
+  const p2 = { id: 2, name: 'Latte', price: 4.5, stock: 20 }
+  const p3 = { id: 3, name: 'Cold Brew', price: 5.0, stock: 8 }
+  const initial = [p1, p2, p3]
+
+  const next = reconcileProductsDelta(initial, {
+    updated: [
+      { id: 1, name: 'Espresso', price: 3.0, stock: 6 },
+      { id: 4, name: 'Flat White', price: 4.75, stock: 15 },
+    ],
+    deleted_ids: [3],
+  })
+
+  assert.equal(next.length, 3)
+  assert.deepEqual(next[0], { id: 1, name: 'Espresso', price: 3.0, stock: 6 })
+  assert.notEqual(next[0], p1)
+  // Unchanged product keeps exact object identity so React.memo rows skip re-renders
+  assert.equal(next[1], p2)
+  assert.deepEqual(next[2], { id: 4, name: 'Flat White', price: 4.75, stock: 15 })
+
+  // Applying the same delta again is a strict reference no-op
+  const idempotent = reconcileProductsDelta(next, {
+    updated: [{ id: 1, name: 'Espresso', price: 3.0, stock: 6 }],
+    deleted_ids: [999],
+  })
+  assert.equal(idempotent, next)
+}
+
+// 8. Validation helpers distinguish authoritative payloads from legacy/mocked payloads
+{
+  assert.deepEqual(toProductItem({ id: 1, name: 'Mocha', price: 4.8, stock: 12 }), {
+    id: 1,
+    name: 'Mocha',
+    price: 4.8,
+    stock: 12,
+  })
+  assert.equal(toProductItem({ id: 1 }), null)
+  assert.equal(toProductItem(null), null)
+
+  assert.equal(hasDeleteDetail({ detail: 'Product deleted' }), true)
+  assert.equal(hasDeleteDetail({}), false)
+
+  assert.equal(parseStockDelta(undefined), null)
+  assert.equal(parseStockDelta({}), null)
+  assert.equal(parseStockDelta({ updated: [{ id: 1 }], deleted_ids: [] }), null)
+  assert.deepEqual(
+    parseStockDelta({
+      updated: [{ id: 2, name: 'Latte', price: 4.5, stock: 19 }],
+      deleted_ids: [9],
+    }),
+    {
+      updated: [{ id: 2, name: 'Latte', price: 4.5, stock: 19 }],
+      deleted_ids: [9],
+    },
+  )
+
+  // Deduplicates split items and ignores null product on partial cancel restock
+  const orderDelta = extractOrderStockDelta({
+    id: 42,
+    status: 'cancelled',
+    items: [
+      { id: 1, product_id: 2, quantity: 1, product: { id: 2, name: 'Latte', price: 4.5, stock: 25 } },
+      { id: 2, product_id: 2, quantity: 2, product: { id: 2, name: 'Latte', price: 4.5, stock: 25 } },
+      { id: 3, product_id: 7, quantity: 1, product: null },
+    ],
+  })
+  assert.deepEqual(orderDelta, {
+    updated: [{ id: 2, name: 'Latte', price: 4.5, stock: 25 }],
+    deleted_ids: [],
+  })
+
+  // Incomplete mocked OrderOut falls back cleanly
+  assert.equal(extractOrderStockDelta({ id: 104 }), null)
+  assert.equal(
+    extractOrderStockDelta({
+      id: 104,
+      items: [{ id: 1, quantity: 2, product: { name: 'Espresso' } }],
+    }),
+    null,
+  )
 }
 
 console.log('All frontend orderState reconciliation tests passed!')

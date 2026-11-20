@@ -305,6 +305,140 @@ describe('Staff pages state isolation and row memoization', () => {
 
       renderer.unmount()
     })
+
+    test('reconciles authoritative POST/PUT/DELETE responses and remote stock_update deltas with zero GET /inventory calls while preserving sibling drafts', async () => {
+      const initialProducts = makeProducts()
+      mockApi.get.mockResolvedValue({ data: initialProducts })
+
+      let renderer!: TestRenderer.ReactTestRenderer
+      await act(async () => {
+        renderer = TestRenderer.create(<Inventory />)
+        await flushPromises()
+      })
+
+      expect(mockApi.get).toHaveBeenCalledTimes(1)
+      mockApi.get.mockClear()
+      mockToast.mockClear()
+
+      // Edit unsaved draft on sibling row #2 (Latte) so we can verify remote updates do not wipe it
+      const initialRows = findAllMemo(renderer.root, ProductRow)
+      await act(async () => {
+        initialRows[1].findAllByType('input')[0].props.onChange({ target: { value: 'Iced Latte Draft' } })
+      })
+
+      // 1. Authoritative POST /inventory appends in place, triggers 0 GET /inventory calls, suppresses echo toast
+      const createForm = findAllMemo(renderer.root, CreateProductForm)[0]
+      const [nameInput, priceInput, stockInput] = createForm.findAllByType('input')
+      await act(async () => {
+        nameInput.props.onChange({ target: { value: 'Matcha Latte' } })
+        priceInput.props.onChange({ target: { value: '5.50' } })
+        stockInput.props.onChange({ target: { value: '25' } })
+      })
+
+      const createdProduct = { id: 5, name: 'Matcha Latte', price: 5.5, stock: 25 }
+      mockApi.post.mockResolvedValueOnce({ data: createdProduct })
+      const addButton = findButtonByText(renderer.root, 'Add Product')
+      await act(async () => {
+        await addButton.props.onClick()
+        await flushPromises()
+      })
+
+      expect(findAllMemo(renderer.root, ProductRow)).toHaveLength(5)
+      expect(mockApi.get).not.toHaveBeenCalled()
+      expect(mockToast).toHaveBeenCalledTimes(1)
+      expect(mockToast).toHaveBeenCalledWith({ title: 'Product created', description: 'Matcha Latte' })
+
+      // Local socket echo for create is suppressed (no Inventory Changed toast, no GET /inventory)
+      mockToast.mockClear()
+      await act(async () => {
+        socketListeners['stock_update']?.forEach(cb =>
+          cb({ updated: [createdProduct], deleted_ids: [] })
+        )
+        await flushPromises()
+      })
+      expect(mockToast).not.toHaveBeenCalled()
+      expect(mockApi.get).not.toHaveBeenCalled()
+
+      // 2. Authoritative PUT /inventory/1 updates row in place, skips sibling renders, suppresses echo toast
+      const rowsAfterCreate = findAllMemo(renderer.root, ProductRow)
+      await act(async () => {
+        rowsAfterCreate[0].findAllByType('input')[2].props.onChange({ target: { value: '42' } })
+      })
+      resetAllSpies()
+      mockToast.mockClear()
+
+      const updatedEspresso = { id: 1, name: 'Espresso', price: 3.0, stock: 42 }
+      mockApi.put.mockResolvedValueOnce({ data: updatedEspresso })
+      const saveRow0 = findButtonByText(rowsAfterCreate[0], 'Save')
+      await act(async () => {
+        await saveRow0.props.onClick()
+        await flushPromises()
+      })
+
+      expect(mockApi.get).not.toHaveBeenCalled()
+      expect(mockToast).toHaveBeenCalledTimes(1)
+      expect(mockToast).toHaveBeenCalledWith({ title: 'Saved', description: 'Espresso' })
+
+      mockToast.mockClear()
+      await act(async () => {
+        socketListeners['stock_update']?.forEach(cb =>
+          cb({ updated: [updatedEspresso], deleted_ids: [] })
+        )
+        await flushPromises()
+      })
+      expect(mockToast).not.toHaveBeenCalled()
+      expect(mockApi.get).not.toHaveBeenCalled()
+
+      // 3. Authoritative DELETE /inventory/4 removes row in place and suppresses echo toast
+      mockToast.mockClear()
+      mockApi.delete.mockResolvedValueOnce({ data: { detail: 'Product deleted' } })
+      const row4Delete = findButtonByText(findAllMemo(renderer.root, ProductRow)[3], 'Delete')
+      await act(async () => {
+        await row4Delete.props.onClick()
+        await flushPromises()
+      })
+
+      expect(findAllMemo(renderer.root, ProductRow)).toHaveLength(4)
+      expect(mockApi.get).not.toHaveBeenCalled()
+      expect(mockToast).toHaveBeenCalledTimes(1)
+      expect(mockToast).toHaveBeenCalledWith({ title: 'Product deleted' })
+
+      mockToast.mockClear()
+      await act(async () => {
+        socketListeners['stock_update']?.forEach(cb =>
+          cb({ updated: [], deleted_ids: [4] })
+        )
+        await flushPromises()
+      })
+      expect(mockToast).not.toHaveBeenCalled()
+      expect(mockApi.get).not.toHaveBeenCalled()
+
+      // 4. Remote stock_update delta updates affected row only, skips sibling re-renders, preserves unsaved sibling draft
+      resetAllSpies()
+      mockToast.mockClear()
+      await act(async () => {
+        socketListeners['stock_update']?.forEach(cb =>
+          cb({
+            updated: [{ id: 3, name: 'Cappuccino', price: 4.25, stock: 9 }],
+            deleted_ids: [],
+          })
+        )
+        await flushPromises()
+      })
+
+      expect(mockToast).toHaveBeenCalledWith({ title: 'Inventory Changed' })
+      expect(mockApi.get).not.toHaveBeenCalled()
+
+      // Only Cappuccino's ProductRow re-rendered (1 Save button render on ProductRow mount/update + Effect sync)
+      const currentRows = findAllMemo(renderer.root, ProductRow)
+      expect(currentRows[2].findAllByType('input')[2].props.value).toBe('9')
+      // Sibling row #2 (Latte) kept its unsaved draft text intact!
+      expect(currentRows[1].findAllByType('input')[0].props.value).toBe('Iced Latte Draft')
+      const renderedLegends = currentRows.map(r => r.findByType('legend').children.join(''))
+      expect(renderedLegends).toEqual(['Espresso', 'Latte', 'Cappuccino', 'Matcha Latte'])
+
+      renderer.unmount()
+    })
   })
 
   describe('Users page', () => {
@@ -644,6 +778,139 @@ describe('Staff pages state isolation and row memoization', () => {
       })
       expect(mockToast).toHaveBeenCalledWith({ title: 'New Order' })
       expect(mockApi.get).not.toHaveBeenCalled()
+
+      renderer.unmount()
+    })
+
+    test('reconciles OrderOut.items[].product on create/cancel and remote stock_update deltas in place with zero GET /inventory calls', async () => {
+      setupOrdersApi()
+
+      let renderer!: TestRenderer.ReactTestRenderer
+      await act(async () => {
+        renderer = TestRenderer.create(<Orders />)
+        await flushPromises()
+      })
+
+      mockApi.get.mockClear()
+      resetAllSpies()
+
+      // 1. Create order returning authoritative OrderOut with items[].product -> 0 GET /inventory calls
+      const pickerRows = findAllMemo(renderer.root, ProductPickerRow)
+      const firstInputId = pickerRows[0].findByType('input').props.id
+      await act(async () => {
+        pickerRows[0].findByType('input').props.onChange({ target: { value: '2' } })
+      })
+      resetAllSpies()
+
+      mockApi.post.mockResolvedValueOnce({
+        data: {
+          id: 110,
+          status: 'pending',
+          created_at: '2026-01-10T15:00:00Z',
+          items: [
+            {
+              id: 501,
+              product_id: 1,
+              quantity: 2,
+              product: { id: 1, name: 'Espresso', price: 3.0, stock: 8 },
+            },
+          ],
+        },
+      })
+
+      const createOrderBtn = findButtonByText(renderer.root, 'Create Order')
+      await act(async () => {
+        await createOrderBtn.props.onClick()
+        await flushPromises()
+      })
+
+      expect(mockApi.get).not.toHaveBeenCalledWith('/inventory')
+      expect(findAllMemo(renderer.root, ProductPickerRow)[0].props.product.stock).toBe(8)
+      // Sibling picker rows (#2 Latte & #3 Mocha) skipped re-rendering; only Product #1 rendered (stock update + cart reset)
+      const numberInputRendersAfterCreate = inputRenderSpy.mock.calls.filter(
+        ([props]) => props.type === 'number'
+      )
+      expect(numberInputRendersAfterCreate.length).toBeGreaterThan(0)
+      expect(numberInputRendersAfterCreate.every(([props]) => props.id === firstInputId)).toBe(true)
+
+      // 2. Cancel order returning authoritative OrderOut with restocked items[].product -> 0 GET /inventory calls
+      mockApi.get.mockClear()
+      resetAllSpies()
+
+      mockApi.post.mockResolvedValueOnce({
+        data: {
+          id: 110,
+          status: 'cancelled',
+          created_at: '2026-01-10T15:00:00Z',
+          items: [
+            {
+              id: 501,
+              product_id: 1,
+              quantity: 2,
+              product: { id: 1, name: 'Espresso', price: 3.0, stock: 10 },
+            },
+          ],
+        },
+      })
+
+      const cancelButtons = renderer.root
+        .findAllByType('button')
+        .filter(b => getVisibleButtonText(b) === 'Cancel')
+      await act(async () => {
+        await cancelButtons[0].props.onClick()
+        await flushPromises()
+      })
+
+      expect(mockApi.post).toHaveBeenLastCalledWith('/orders/110/cancel')
+      expect(mockApi.get).not.toHaveBeenCalledWith('/inventory')
+      expect(findAllMemo(renderer.root, ProductPickerRow)[0].props.product.stock).toBe(10)
+      const numberInputRendersAfterCancel = inputRenderSpy.mock.calls.filter(
+        ([props]) => props.type === 'number'
+      )
+      expect(numberInputRendersAfterCancel).toHaveLength(1)
+
+      // Consume the local cancel stock_update echo before testing remote stock_update
+      await act(async () => {
+        socketListeners['stock_update']?.forEach(cb =>
+          cb({ updated: [{ id: 1, name: 'Espresso', price: 3.0, stock: 10 }], deleted_ids: [] })
+        )
+        await flushPromises()
+      })
+
+      // 3. Remote stock_update delta merges updated/new products and removes deleted_ids with 0 GET /inventory calls
+      mockApi.get.mockClear()
+      resetAllSpies()
+
+      await act(async () => {
+        socketListeners['stock_update']?.forEach(cb =>
+          cb({
+            updated: [
+              { id: 2, name: 'Latte', price: 4.5, stock: 16 },
+              { id: 4, name: 'Cortado', price: 3.75, stock: 9 },
+            ],
+            deleted_ids: [3],
+          })
+        )
+        await flushPromises()
+      })
+
+      expect(mockApi.get).not.toHaveBeenCalledWith('/inventory')
+      const updatedPickerRows = findAllMemo(renderer.root, ProductPickerRow)
+      expect(updatedPickerRows.map(r => r.props.product.id)).toEqual([1, 2, 4])
+      expect(updatedPickerRows[1].props.product.stock).toBe(16)
+      // Unchanged Product #1 skipped re-rendering; only updated #2 and appended #4 rendered
+      const remoteDeltaInputRenders = inputRenderSpy.mock.calls.filter(
+        ([props]) => props.type === 'number'
+      )
+      expect(remoteDeltaInputRenders).toHaveLength(2)
+
+      // 4. Legacy payload-less stock_update falls back to GET /inventory
+      mockApi.get.mockClear()
+      await act(async () => {
+        socketListeners['stock_update']?.forEach(cb => cb())
+        await flushPromises()
+      })
+      expect(mockApi.get).toHaveBeenCalledWith('/inventory')
 
       renderer.unmount()
     })

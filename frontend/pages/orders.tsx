@@ -20,13 +20,18 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import type { Socket } from 'socket.io-client'
 import {
+  extractOrderStockDelta,
   OrderSummary,
+  parseStockDelta,
+  ProductItem,
   reconcileCancelledOrder,
   reconcileCreatedOrder,
+  reconcileProductsDelta,
+  StockDelta,
   toOrderSummary,
 } from '../lib/orderState'
 
-export type Product = { id: number; name: string; price: number; stock: number }
+export type Product = ProductItem
 export type Order = OrderSummary & { items?: any[] }
 type OrderStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled'
 
@@ -87,7 +92,7 @@ export const OrderCreator = memo(function OrderCreator({
   onSubmitOrder?: (payload: {
     status: OrderStatus
     items: { product_id: number; quantity: number }[]
-  }) => Promise<void>
+  }) => Promise<boolean | void>
 }) {
   const [cart, setCart] = useState<Record<number, number>>({})
   const [status, setStatus] = useState<OrderStatus>('pending')
@@ -121,15 +126,18 @@ export const OrderCreator = memo(function OrderCreator({
       return
     }
     try {
+      let reconciledInPlace = false
       if (onSubmitOrder) {
-        await onSubmitOrder({ status, items })
+        reconciledInPlace = (await onSubmitOrder({ status, items })) === true
       } else {
         await api.post('/orders', { status, items })
       }
       toast({ title: 'Order created' })
       setCart({})
       setStatus('pending')
-      await onOrderCreated()
+      if (!reconciledInPlace) {
+        await onOrderCreated()
+      }
     } catch (e: any) {
       toast({
         title: 'Error',
@@ -418,6 +426,10 @@ export default function Orders() {
     setOrders(prev => reconcileCancelledOrder(prev, payload, view))
   }, [])
 
+  const applyStockDelta = useCallback((delta: StockDelta) => {
+    setProducts(prev => reconcileProductsDelta(prev, delta))
+  }, [])
+
   const fetchOrders = useCallback(() => {
     const seq = ++requestSeqRef.current
     const params: Record<string, string | number> = {
@@ -461,6 +473,8 @@ export default function Orders() {
   applyCreatedOrderRef.current = applyCreatedOrder
   const applyCancelledOrderRef = useRef(applyCancelledOrder)
   applyCancelledOrderRef.current = applyCancelledOrder
+  const applyStockDeltaRef = useRef(applyStockDelta)
+  applyStockDeltaRef.current = applyStockDelta
 
   useEffect(() => {
     if (username) {
@@ -524,10 +538,18 @@ export default function Orders() {
       }
       toast({ title: 'Order cancelled' })
     })
-    s.on('stock_update', () => {
+    s.on('stock_update', (payload?: unknown) => {
+      const delta = parseStockDelta(payload)
       if (pendingLocalStockRef.current.length > 0) {
         const timer = pendingLocalStockRef.current.shift()
         if (timer) clearTimeout(timer)
+        if (delta) {
+          applyStockDeltaRef.current(delta)
+        }
+        return
+      }
+      if (delta) {
+        applyStockDeltaRef.current(delta)
         return
       }
       loadProductsRef.current()
@@ -543,7 +565,7 @@ export default function Orders() {
     }: {
       status: OrderStatus
       items: { product_id: number; quantity: number }[]
-    }) => {
+    }): Promise<boolean> => {
       const createEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
       clearTimeout(createEchoToken)
       pendingLocalCreatesRef.current.push(createEchoToken)
@@ -555,6 +577,10 @@ export default function Orders() {
       try {
         const res = await api.post('/orders', { status, items })
         applyCreatedOrderRef.current(res.data)
+        const stockDelta = extractOrderStockDelta(res?.data)
+        if (stockDelta) {
+          applyStockDeltaRef.current(stockDelta)
+        }
 
         const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
         if (createIdx !== -1) {
@@ -575,6 +601,8 @@ export default function Orders() {
           ;(expiry as any)?.unref?.()
           pendingLocalStockRef.current[stockIdx] = expiry
         }
+
+        return stockDelta !== null
       } catch (e) {
         const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
         if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
@@ -621,7 +649,12 @@ export default function Orders() {
         pendingLocalStockRef.current[stockIdx] = expiry
       }
 
-      await loadProductsRef.current()
+      const stockDelta = extractOrderStockDelta(res?.data)
+      if (stockDelta) {
+        applyStockDeltaRef.current(stockDelta)
+      } else {
+        await loadProductsRef.current()
+      }
     } catch (e: any) {
       const existing = pendingLocalCancelsRef.current.get(id)
       if (existing) clearTimeout(existing)
