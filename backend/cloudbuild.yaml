@@ -36,11 +36,33 @@ steps:
       - '${_RUN_SERVICE_ACCOUNT}'
       - '${_DB_URL_SECRET}'
       - '${_JWT_SECRET_NAME}'
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend','.']
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend']
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  - id: 'build-image'
+    name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend', '.']
+  - id: 'test-image'
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'run'
+      - '--rm'
+      - '-e'
+      - 'JWT_SECRET=cloudbuild-test-jwt-secret-key'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend'
+      - 'sh'
+      - '-ceu'
+      - |
+        unset DATABASE_URL
+        python -c "import app.main"
+        python seed.py
+        rm -f dev.db
+        if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
+          pip install --no-cache-dir pytest httpx websockets pyyaml
+          PYTHONPATH=. python -m pytest -v
+        fi
+  - id: 'push-image'
+    name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend']
+  - id: 'deploy-cloud-run'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       [

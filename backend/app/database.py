@@ -87,27 +87,29 @@ def validate_database_config() -> Tuple[str, Optional[str]]:
             instance_socket = stripped_socket
         return db_url, instance_socket
 
+    # Fallback to SQLite for quick local runs if DATABASE_URL is not provided
     db_url = (raw_db_url or "").strip() or "sqlite:///./dev.db"
     return db_url, instance_socket
 
 
 DATABASE_URL, INSTANCE_SOCKET = validate_database_config()
 
-if INSTANCE_SOCKET and not DATABASE_URL.startswith("sqlite"):
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    if importlib.util.find_spec("psycopg") is None:
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+# If using Cloud SQL unix socket on Cloud Run (Postgres), rewrite host
+if INSTANCE_SOCKET and DATABASE_URL.startswith("postgresql"):
     DATABASE_URL = DATABASE_URL.replace("localhost", f"/cloudsql/{INSTANCE_SOCKET}")
 
-_engine_url = DATABASE_URL
-if _engine_url.startswith("postgresql://") and importlib.util.find_spec("psycopg") is None:
-    _engine_url = "postgresql+psycopg2://" + _engine_url[len("postgresql://"):]
-
-connect_args = (
-    {"check_same_thread": False}
-    if DATABASE_URL and DATABASE_URL.startswith("sqlite")
-    else {"sslmode": "disable"}
-)
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
 
 # Create the SQLAlchemy engine
-engine = create_engine(_engine_url, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
