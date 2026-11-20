@@ -1,0 +1,64 @@
+# Build, CI/CD, and local scripts
+Dockerfile
+.dockerignore
+cloudbuild.yaml
+seed.py
+app/routers/_init_.py
+tests/
+
+# Git metadata
+.git/
+.gitignore
+
+# Python bytecode, virtualenvs, packaging, and local databases
+__pycache__/
+**/__pycache__/
+*.pyc
+**/*.pyc
+*.pyo
+**/*.pyo
+*.pyd
+**/*.pyd
+*.db
+**/*.db
+*.sqlite3
+**/*.sqlite3
+.venv/
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+**/*.log
+
+# Environment and secret files
+.env
+.env*
+.env.*
+
+# Frontend / Node artifacts
+node_modules/
+.next/
+out/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+*.code-workspace
+
+# Coverage and test caches
+.coverage
+htmlcov/
+pytest_cache/
+.pytest_cache/
+playwright-report/
+test-results/
