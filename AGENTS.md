@@ -1,5 +1,10 @@
 # AGENTS.md — Coffee Shop Ordering System
 
+This file defines repository conventions, deterministic dependency management, pre-commit guardrails, container release/provenance guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
+
+## Repository Structure & Architecture
+
+- `backend/` — FastAPI, SQLAlchemy 2.0.x, JWT (`python-jose` + `passlib`/bcrypt), and `python-socketio` ASGI backend running on Python 3.11 (`app/main.py`, `seed.py`, `tests/`, `pyproject.toml`, `requirements.in`, `requirements.txt`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
 This file defines repository conventions, pre-commit guardrails, secret management and Cloud Run deployment guardrails, container release/SLSA provenance guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
 
 ## Repository Structure & Architecture
@@ -7,7 +12,7 @@ This file defines repository conventions, pre-commit guardrails, secret manageme
 - `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and `python-socketio` ASGI backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`, `.env.example`, `pyproject.toml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
   - REST routers in `backend/app/main.py`: `/auth`, `/dashboard`, `/orders`, `/inventory`, `/reports`, `/users`.
   - Socket.IO ASGI endpoint in `backend/app/websockets.py`: mounted at `/ws` with `socketio_path='/ws/socket.io'`.
-- `frontend/` — Next.js `14.1.0` (Pages Router, TypeScript, Tailwind CSS) frontend (`package.json`, `tsconfig.json`, `next.config.js`, `firebase.json`, `cloudbuild.yaml`) configured for static HTML export (`output: 'export'`, `images: { unoptimized: true }`) into `frontend/out` and deployed to Firebase Hosting (`cleanUrls: true`).
+- `frontend/` — Next.js `14.1.0` (Pages Router, TypeScript, Tailwind CSS, Radix UI Toast, `socket.io-client`) frontend (`package.json`, `package-lock.json`, `tsconfig.json`, `next.config.js`, `.eslintrc.json`, `.prettierrc.json`, `firebase.json`, `cloudbuild.yaml`) configured for static HTML export (`output: 'export'`, `images: { unoptimized: true }`) into `frontend/out` and deployed to Firebase Hosting (`cleanUrls: true`).
 - `.github/workflows/ci.yml` — Parallel `backend-checks` and `frontend-build` GitHub Actions jobs triggered on pushes and pull requests to `main`.
 - `.github/workflows/deploy-frontend.yml` — Frontend static export verification (`verify`) and Workload Identity Federation deployment with SHA-256 manifest provenance attestation (`deploy`).
 - `.pre-commit-config.yaml` — Pre-commit hooks enforcing Ruff, Mypy, Prettier, YAML syntax, and whitespace rules.
@@ -31,6 +36,45 @@ cp backend/.env.example backend/.env
 - `NEXT_PUBLIC_SOCKET_URL`: Optional direct origin for Socket.IO (`frontend/hooks/useSocket.ts`) to connect directly to Cloud Run (`coffee-backend`) when CDN rewrites strip WebSocket `Upgrade` headers. Falls back to `NEXT_PUBLIC_API_URL` (or same-origin `/ws/socket.io` when relative/unset in production).
 - `FIREBASE_PROJECT_ID`: Explicit target Firebase project passed via `--project "$FIREBASE_PROJECT_ID"` (`frontend/.firebaserc` intentionally omits hardcoded project aliases).
 
+## Deterministic Dependency Installation & Lockfile Maintenance
+
+### Backend (`backend/requirements.in` -> `backend/requirements.txt`)
+
+`backend/requirements.txt` is a hash-locked file compiled from `backend/requirements.in` for Python 3.11 (`python:3.11-slim` in `backend/Dockerfile`). Never hand-edit `backend/requirements.txt` or mix unhashed packages into a `--require-hashes` install command.
+
+To update backend dependencies, edit `backend/requirements.in` and recompile against Python 3.11 so wheel and sdist SHA-256 hashes match `python:3.11-slim`:
+
+```bash
+docker run --rm -v "$PWD/backend:/work" -w /work python:3.11-slim sh -c \
+  "pip install --no-cache-dir pip-tools && pip-compile --generate-hashes --strip-extras --output-file=requirements.txt requirements.in"
+```
+
+Alternatively, from an activated Python 3.11 virtual environment with `pip-tools` installed:
+
+```bash
+cd backend
+pip-compile --generate-hashes --strip-extras --output-file=requirements.txt requirements.in
+```
+
+Key compatibility constraints maintained in `backend/requirements.in`:
+
+- `sqlalchemy>=2.0.0,<2.1.0` so `postgresql://` URLs route to `psycopg2-binary`.
+- `passlib[bcrypt]==1.7.4` and `bcrypt>=4.0.1,<4.1.0` for compatible password hashing in `app/auth.py` and `seed.py`.
+- `pydantic>=2.7.0,<3.0.0` and `fastapi>=0.115.0,<1.0.0` for Pydantic v2 (`TypeAdapter`, `model_validate`, and `orm_mode`/`from_attributes`) and Starlette CORS compatibility.
+- `python-socketio>=5.11.0,<6.0.0` (do not use the non-existent `python-socketio[asgi]` extra).
+
+### Frontend (`frontend/package.json` -> `frontend/package-lock.json`)
+
+`frontend/package-lock.json` is tracked in git (do not ignore lockfiles in `.gitignore`). Always install the locked dependency tree with `npm ci`. After updating `frontend/package.json`, regenerate `frontend/package-lock.json` and verify a clean build:
+
+```bash
+cd frontend
+npm install --package-lock-only
+npm ci
+NEXT_PUBLIC_API_URL=/ npm run build
+```
+
+## Pre-commit and Local Guardrails
 ## Secret Management, Release & Provenance Guardrails
 
 - **No Plaintext Secrets in Build Configs**: `backend/cloudbuild.yaml` and `bootstrap_coffee_shop.sh` must never define plaintext password or signing-key substitutions (such as `_DB_PASS` or `_JWT_SECRET`) or `'replace-me'` defaults.
@@ -77,10 +121,11 @@ git ls-files --error-unmatch backend/.env.example
 git check-ignore -q backend/.env
 
 cd backend
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt pytest httpx websockets
+pip install --no-cache-dir --require-hashes -r requirements.txt
+pip install pytest httpx websockets
 ```
 
 ### 2. Backend Smoke Checks (SQLite Default & PostgreSQL)
@@ -154,6 +199,53 @@ JWT_SECRET="local-dev-jwt-secret-key-12345" PYTHONPATH=. python -m pytest -v
 
 ### 5. Backend Container & Cloud Build Pipeline Gate
 
+1. **Validate `backend/cloudbuild.yaml` syntax and provenance invariants**:
+
+   ```bash
+   yq -e '.options.requestedVerifyOption == "VERIFIED" and (.images | length > 0) and (.steps | length == 4)' backend/cloudbuild.yaml
+   ```
+
+   Or with Python (`PyYAML`):
+
+   ```bash
+   python3 -c '
+   import pathlib, re, yaml
+   raw = pathlib.Path("backend/cloudbuild.yaml").read_text()
+   cfg = yaml.safe_load(raw)
+   assert cfg["options"]["requestedVerifyOption"] == "VERIFIED"
+   assert "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" in cfg["images"]
+   assert [s["id"] for s in cfg["steps"]] == ["build-image", "test-image", "push-image", "deploy-cloud-run"]
+   assert not re.search(r"coffee-repo/coffee-backend(?![:@])|:latest\b", raw)
+   print("cloudbuild.yaml validation passed")
+   '
+   ```
+
+2. **Build `backend/Dockerfile` and inspect built image contents** (verify `.dockerignore` excludes `cloudbuild.yaml`, `Dockerfile`, `seed.py`, `app/routers/_init_.py`, `tests/`, `.env*`, `.venv/`, `__pycache__/`, and `*.db`):
+
+   ```bash
+   docker build -t coffee-backend:local backend
+   docker run --rm --entrypoint find coffee-backend:local /app -mindepth 1 -maxdepth 3 | sort
+   ```
+
+3. **Run ephemeral container smoke and `pytest` gate** (reproduces `test-image` in `backend/cloudbuild.yaml` without baking tests or seed scripts into `coffee-backend:local`):
+
+   ```bash
+   cd backend
+   tar -cf - seed.py tests | docker run --rm -i \
+     -e JWT_SECRET="cloudbuild-test-jwt-secret-key" \
+     coffee-backend:local \
+     sh -ceu '
+       tar -xf - -C /app
+       unset DATABASE_URL
+       python -c "import app.main"
+       python seed.py
+       rm -f dev.db
+       if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
+         pip install --no-cache-dir pytest httpx websockets
+         PYTHONPATH=. python -m pytest -v
+       fi
+     '
+   ```
 ```bash
 docker build -t coffee-backend:local backend
 docker run --rm --entrypoint find coffee-backend:local /app -mindepth 1 -maxdepth 3 | sort
@@ -177,10 +269,11 @@ tar -cf - seed.py cloudbuild.yaml .env.example tests | docker run --rm -i \
 
 ### 6. Frontend Setup, Typecheck, Lint, Format, and Tests (`frontend/`)
 
-Note that `.gitignore` excludes `package-lock.json`; pass `--no-package-lock` when installing dependencies locally so git working trees stay clean:
-
 ```bash
 cd frontend
+npm ci --no-audit --no-fund
+
+# Strict TypeScript typechecking (tsc --noEmit)
 npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
 npm run typecheck
 npm run lint
@@ -188,6 +281,9 @@ npm run format:check
 npm run test:unit
 node --test __tests__/orderState.test.mjs
 npm run test:e2e
+
+# Production Next.js build (matches CI frontend-build)
+NEXT_PUBLIC_API_URL=/ NEXT_TELEMETRY_DISABLED=1 npm run build
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
@@ -258,9 +354,10 @@ check-jsonschema --builtin-schema vendor.cloudbuild backend/cloudbuild.yaml fron
 
 ## Guardrails
 
+- Do not ignore `frontend/package-lock.json` in `.gitignore` or hand-edit `backend/requirements.txt` without SHA-256 hashes.
 - Keep `"strict": true`, `"skipLibCheck": false`, `"noUnusedLocals": true`, and `"noUnusedParameters": true` enabled in `frontend/tsconfig.json`.
 - Avoid explicit `any` annotations; share API payload interfaces via `frontend/types/api.ts` (matching `backend/app/schemas.py`) and narrow `unknown` errors with `axios.isAxiosError`.
 - Do not add workflow path filters to `.github/workflows/ci.yml` that could skip required branch-protection checks.
 - Keep CI token permissions read-only (`contents: read`) unless a job explicitly publishes artifacts or attestations.
 - Never allow `http://localhost:8000` fallbacks in production frontend builds (`frontend/out`).
-- Remove untracked local artifacts (`backend/dev.db`, `frontend/tsconfig.tsbuildinfo`, `frontend/package-lock.json`) before committing.
+- Remove untracked local artifacts (`backend/dev.db`, `frontend/tsconfig.tsbuildinfo`) before committing.

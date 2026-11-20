@@ -17,7 +17,7 @@ steps:
           echo "Error: Frontend URLs must not reference http://localhost:8000." >&2
           exit 1
         fi
-        npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
+        npm ci --no-audit --no-fund
         npx tsc --noEmit
         npm run build
         if grep -rnF 'http://localhost:8000' out/; then
