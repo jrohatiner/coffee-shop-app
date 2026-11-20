@@ -169,6 +169,12 @@ export function reconcileCancelledOrder(
 
   const existingIndex = orders.findIndex((o) => o.id === rawId)
   if (existingIndex !== -1) {
+    if (options?.statusFilter && nextStatus !== options.statusFilter) {
+      return [
+        ...orders.slice(0, existingIndex),
+        ...orders.slice(existingIndex + 1),
+      ]
+    }
     const existing = orders[existingIndex]
     const resolvedCreatedAt = incomingCreatedAt ?? existing.created_at
     if (
