@@ -3,9 +3,9 @@ import { useAuth } from '../hooks/useAuth'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
-import { toast } from '../components/ui/use-toast'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs'
-import type { SalesReportOut } from '../types/api'
+import FormErrorBanner from '../components/ui/FormErrorBanner'
+import { getApiErrorDetail, type SalesReportOut } from '../types/api'
 
 type ReportTab = 'daily' | 'weekly' | 'monthly'
 
@@ -18,6 +18,7 @@ type TabPageState = {
   page: number
   hasMore: boolean
   loadedPage: number | null
+  error: string | null
 }
 
 const REPORT_TABS: readonly ReportTab[] = ['daily', 'weekly', 'monthly']
@@ -27,9 +28,15 @@ const isReportTab = (value: string): value is ReportTab =>
   REPORT_TABS.some((period) => period === value)
 
 const createInitialTabStates = (): Record<ReportTab, TabPageState> => ({
-  daily: { items: [], page: 1, hasMore: false, loadedPage: null },
-  weekly: { items: [], page: 1, hasMore: false, loadedPage: null },
-  monthly: { items: [], page: 1, hasMore: false, loadedPage: null },
+  daily: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
+  weekly: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
+  monthly: {
+    items: [],
+    page: 1,
+    hasMore: false,
+    loadedPage: null,
+    error: null,
+  },
 })
 
 const isCanceledRequest = (err: unknown): boolean => {
@@ -58,7 +65,7 @@ export const ReportsPagination = memo(function ReportsPagination({
 }) {
   return (
     <div className="flex items-center justify-between pt-2">
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-gray-700">
         Page {page} · Showing {reportsCount}{' '}
         {reportsCount === 1 ? 'report' : 'reports'}
       </div>
@@ -107,6 +114,16 @@ export default function Reports() {
     const targetPage = activePage
     const offset = (targetPage - 1) * DEFAULT_PAGE_SIZE
 
+    if (tabStatesRef.current[targetTab].error !== null) {
+      setTabStates((prev) => ({
+        ...prev,
+        [targetTab]: {
+          ...prev[targetTab],
+          error: null,
+        },
+      }))
+    }
+
     Promise.resolve(
       api.get<SalesReport[]>(`/reports/${targetTab}`, {
         params: { limit: DEFAULT_PAGE_SIZE, offset },
@@ -130,6 +147,7 @@ export default function Reports() {
             items: data,
             hasMore: more,
             loadedPage: targetPage,
+            error: null,
           },
         }))
       })
@@ -142,11 +160,18 @@ export default function Reports() {
         ) {
           return
         }
-        toast({
-          title: 'Error',
-          description: 'Failed to load reports',
-          variant: 'destructive',
-        })
+        const fallback = `Failed to load ${targetTab} sales reports`
+        const detail = getApiErrorDetail(err, fallback)
+        setTabStates((prev) => ({
+          ...prev,
+          [targetTab]: {
+            ...prev[targetTab],
+            items: [],
+            hasMore: false,
+            loadedPage: null,
+            error: detail.trim() || fallback,
+          },
+        }))
       })
 
     return () => {
@@ -172,6 +197,7 @@ export default function Reports() {
         [tab]: {
           ...current,
           page: nextPage,
+          error: null,
         },
       }
     })
@@ -186,6 +212,7 @@ export default function Reports() {
         [tab]: {
           ...current,
           page: current.page + 1,
+          error: null,
         },
       }
     })
@@ -202,29 +229,70 @@ export default function Reports() {
           <TabsTrigger value="weekly">Weekly</TabsTrigger>
           <TabsTrigger value="monthly">Monthly</TabsTrigger>
         </TabsList>
-        {REPORT_TABS.map((period) => (
-          <TabsContent key={period} value={period}>
-            {tab === period && (
-              <>
-                <ul className="mt-4 space-y-2">
-                  {tabStates[period].items.map((r) => (
-                    <li key={r.id} className="border rounded p-3">
-                      <strong>{r.report_type.toUpperCase()}</strong> — $
-                      {r.total_sales?.toFixed?.(2) ?? 0}
-                    </li>
-                  ))}
-                </ul>
-                <ReportsPagination
-                  page={tabStates[period].page}
-                  reportsCount={tabStates[period].items.length}
-                  hasMore={tabStates[period].hasMore}
-                  onPrevPage={handlePrevPage}
-                  onNextPage={handleNextPage}
-                />
-              </>
-            )}
-          </TabsContent>
-        ))}
+        {REPORT_TABS.map((period) => {
+          const periodState = tabStates[period]
+          const isLoading =
+            periodState.loadedPage !== periodState.page &&
+            periodState.error === null
+          const visibleItems =
+            isLoading || periodState.error ? [] : periodState.items
+
+          return (
+            <TabsContent key={period} value={period}>
+              {tab === period && (
+                <>
+                  {isLoading && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="mt-4 text-sm text-gray-700"
+                    >
+                      Loading {period} sales reports...
+                    </div>
+                  )}
+                  {!isLoading && periodState.error && (
+                    <FormErrorBanner
+                      className="mt-4"
+                      message={periodState.error}
+                    />
+                  )}
+                  {!isLoading &&
+                    !periodState.error &&
+                    visibleItems.length === 0 && (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className="mt-4 text-sm text-gray-700"
+                      >
+                        No {period} sales reports available.
+                      </div>
+                    )}
+                  <ul
+                    className={
+                      visibleItems.length > 0 ? 'mt-4 space-y-2' : 'hidden'
+                    }
+                  >
+                    {visibleItems.map((r) => (
+                      <li key={r.id} className="border rounded p-3">
+                        <strong>{r.report_type.toUpperCase()}</strong> — $
+                        {r.total_sales?.toFixed?.(2) ?? 0}
+                      </li>
+                    ))}
+                  </ul>
+                  <ReportsPagination
+                    page={periodState.page}
+                    reportsCount={visibleItems.length}
+                    hasMore={
+                      !isLoading && !periodState.error && periodState.hasMore
+                    }
+                    onPrevPage={handlePrevPage}
+                    onNextPage={handleNextPage}
+                  />
+                </>
+              )}
+            </TabsContent>
+          )
+        })}
       </Tabs>
     </div>
   )

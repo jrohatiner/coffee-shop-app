@@ -28,8 +28,6 @@ out/
 *.tsbuildinfo
 npm-debug.log
 yarn-error.log
-package-lock.json
-yarn.lock
 
 # OS Files
 .DS_Store
@@ -44,5 +42,7 @@ Thumbs.db
 htmlcov/
 pytest_cache/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 playwright-report/
 test-results/

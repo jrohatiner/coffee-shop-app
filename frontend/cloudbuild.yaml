@@ -1,0 +1,38 @@
+steps:
+  - name: 'node:22'
+    dir: 'frontend'
+    entrypoint: 'bash'
+    env:
+      - 'NEXT_PUBLIC_API_URL=${_NEXT_PUBLIC_API_URL}'
+      - 'NEXT_PUBLIC_SOCKET_URL=${_NEXT_PUBLIC_SOCKET_URL}'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        if [ -z "$${NEXT_PUBLIC_API_URL:-}" ]; then
+          echo "Error: _NEXT_PUBLIC_API_URL substitution must be set for release builds." >&2
+          exit 1
+        fi
+        if printf '%s\n%s\n' "$$NEXT_PUBLIC_API_URL" "$${NEXT_PUBLIC_SOCKET_URL:-}" | grep -Fq 'http://localhost:8000'; then
+          echo "Error: Frontend URLs must not reference http://localhost:8000." >&2
+          exit 1
+        fi
+        npm ci --no-audit --no-fund
+        npx tsc --noEmit
+        npm run build
+        if grep -rnF 'http://localhost:8000' out/; then
+          echo "Error: Found forbidden http://localhost:8000 reference in frontend/out" >&2
+          exit 1
+        fi
+        (
+          cd out
+          find . -type f ! -name 'manifest.sha256' -print0 \
+            | LC_ALL=C sort -z \
+            | xargs -0 sha256sum > manifest.sha256
+          sha256sum -c manifest.sha256
+        )
+        npx --yes firebase-tools deploy --only hosting --project "$PROJECT_ID"
+substitutions:
+  _REGION: 'us-central1'
+  _NEXT_PUBLIC_API_URL: ''
+  _NEXT_PUBLIC_SOCKET_URL: ''

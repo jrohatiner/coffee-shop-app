@@ -5,6 +5,7 @@ import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
+import FormErrorBanner from '../components/ui/FormErrorBanner'
 import { useSocket } from '../hooks/useSocket'
 import { FocusHandoffHandle, useFocusHandoff } from '../hooks/useFocusHandoff'
 import type { Socket } from 'socket.io-client'
@@ -239,7 +240,11 @@ export const ProductRow = memo(function ProductRow({
 
 export default function Inventory() {
   const user = useAuth()
+  const username = user?.sub ?? null
   const [products, setProducts] = useState<Product[]>([])
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const requestSeqRef = useRef(0)
   const productsRef = useRef<Product[]>(products)
   productsRef.current = products
   const productsHeadingRef = useRef<HTMLHeadingElement | null>(null)
@@ -291,18 +296,32 @@ export default function Inventory() {
   )
 
   const load = useCallback(() => {
+    const seq = ++requestSeqRef.current
+    setIsLoading(true)
+    setLoadError(null)
     return api
       .get('/inventory')
       .then((r) => {
+        if (seq !== requestSeqRef.current) return
         productsRef.current = r.data
         setProducts(r.data)
+        setLoadError(null)
+        setIsLoading(false)
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        if (seq !== requestSeqRef.current) return
+        const fallback = 'Failed to load inventory'
+        const detail = getApiErrorDetail(err, fallback)
+        productsRef.current = []
+        setProducts([])
+        setLoadError(detail.trim() || fallback)
+        setIsLoading(false)
+      })
   }, [])
 
   useEffect(() => {
-    if (user) load()
-  }, [user, load])
+    if (username) load()
+  }, [username, load])
 
   useEffect(() => {
     const activeDeletes = activeDeleteHandoffIdsRef.current
@@ -396,6 +415,7 @@ export default function Inventory() {
         const created = toProductItem(res?.data)
         if (created) {
           armLocalEchoToken(stockEchoToken)
+          setLoadError(null)
           setProducts((prev) => {
             const next = reconcileProductsDelta(prev, {
               updated: [created],
@@ -426,6 +446,7 @@ export default function Inventory() {
         }, LOCAL_SOCKET_ECHO_TTL_MS)
         unrefTimer(expiry)
         pendingLocalStockRef.current.push(expiry)
+        setLoadError(null)
         setProducts((prev) => {
           const next = reconcileProductsDelta(prev, {
             updated: [parsed],
@@ -553,15 +574,35 @@ export default function Inventory() {
         >
           Products
         </h2>
-        {products.map((p) => (
-          <ProductRow
-            key={p.id}
-            product={p}
-            onSave={save}
-            onDelete={del}
-            onRegisterDeleteButton={registerDeleteButton}
-          />
-        ))}
+        {isLoading && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="text-sm text-gray-700"
+          >
+            Loading inventory...
+          </div>
+        )}
+        {!isLoading && loadError && <FormErrorBanner message={loadError} />}
+        {!isLoading && !loadError && products.length === 0 && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="text-sm text-gray-700"
+          >
+            No products in inventory.
+          </div>
+        )}
+        {!loadError &&
+          products.map((p) => (
+            <ProductRow
+              key={p.id}
+              product={p}
+              onSave={save}
+              onDelete={del}
+              onRegisterDeleteButton={registerDeleteButton}
+            />
+          ))}
       </section>
     </div>
   )

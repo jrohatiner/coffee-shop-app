@@ -3,8 +3,9 @@ import statistics
 import sys
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 # Ensure `app` package is importable whether pytest is run from repo root or backend/
@@ -43,6 +44,20 @@ from app.routers.orders import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE  # noqa: E402
 from app.websockets import init_websockets, sio  # noqa: E402
 
 _TEST_PASSWORD_HASH = auth.get_password_hash("testpass123")
+
+
+def _naive_utc(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0,
+    second: int = 0,
+    microsecond: int = 0,
+) -> datetime:
+    return datetime(
+        year, month, day, hour, minute, second, microsecond, tzinfo=UTC
+    ).replace(tzinfo=None)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -156,17 +171,17 @@ def test_list_orders_supports_status_and_date_filters(test_context):
         o1 = models.Order(
             user_id=user.id,
             status="pending",
-            created_at=datetime(2026, 11, 17, 9, 30, 0),
+            created_at=_naive_utc(2026, 11, 17, 9, 30, 0),
         )
         o2 = models.Order(
             user_id=user.id,
             status="completed",
-            created_at=datetime(2026, 11, 18, 14, 15, 0),
+            created_at=_naive_utc(2026, 11, 18, 14, 15, 0),
         )
         o3 = models.Order(
             user_id=user.id,
             status="cancelled",
-            created_at=datetime(2026, 11, 18, 18, 45, 0),
+            created_at=_naive_utc(2026, 11, 18, 18, 45, 0),
         )
         db.add_all([o1, o2, o3])
         db.commit()
@@ -247,7 +262,10 @@ def test_create_and_cancel_emit_summary_events_and_update_stock(test_context):
     assert esp_after_create["stock"] == 96
 
     # Check emitted Socket.IO events on create
-    create_events = [(call.args[0], call.args[1] if len(call.args) > 1 else None) for call in emit_mock.call_args_list]
+    create_events = [
+        (call.args[0], call.args[1] if len(call.args) > 1 else None)
+        for call in emit_mock.call_args_list
+    ]
     assert (
         "stock_update",
         {
@@ -262,7 +280,9 @@ def test_create_and_cancel_emit_summary_events_and_update_stock(test_context):
             "deleted_ids": [],
         },
     ) in create_events
-    new_order_payloads = [payload for event, payload in create_events if event == "new_order"]
+    new_order_payloads = [
+        payload for event, payload in create_events if event == "new_order"
+    ]
     assert len(new_order_payloads) == 1
     assert new_order_payloads[0] == {
         "id": created["id"],
@@ -284,7 +304,10 @@ def test_create_and_cancel_emit_summary_events_and_update_stock(test_context):
     assert esp_after_cancel["stock"] == 100
 
     # Check emitted Socket.IO events on cancel
-    cancel_events = [(call.args[0], call.args[1] if len(call.args) > 1 else None) for call in emit_mock.call_args_list]
+    cancel_events = [
+        (call.args[0], call.args[1] if len(call.args) > 1 else None)
+        for call in emit_mock.call_args_list
+    ]
     assert (
         "stock_update",
         {
@@ -299,12 +322,16 @@ def test_create_and_cancel_emit_summary_events_and_update_stock(test_context):
             "deleted_ids": [],
         },
     ) in cancel_events
-    cancelled_payloads = [payload for event, payload in cancel_events if event == "order_cancelled"]
+    cancelled_payloads = [
+        payload for event, payload in cancel_events if event == "order_cancelled"
+    ]
     assert len(cancelled_payloads) == 1
-    assert cancelled_payloads[0]["id"] == created["id"]
-    assert cancelled_payloads[0]["order_id"] == created["id"]
-    assert cancelled_payloads[0]["status"] == "cancelled"
-    assert cancelled_payloads[0]["created_at"] == created["created_at"]
+    cancelled_payload = cancelled_payloads[0]
+    assert cancelled_payload is not None
+    assert cancelled_payload["id"] == created["id"]
+    assert cancelled_payload["order_id"] == created["id"]
+    assert cancelled_payload["status"] == "cancelled"
+    assert cancelled_payload["created_at"] == created["created_at"]
 
 
 def test_thousand_orders_payload_size_and_serialization_speed(test_context):
@@ -316,7 +343,7 @@ def test_thousand_orders_payload_size_and_serialization_speed(test_context):
 
     db = SessionLocal()
     try:
-        ts = datetime(2026, 11, 18, 12, 0, 0, 123456)
+        ts = _naive_utc(2026, 11, 18, 12, 0, 0, 123456)
         orders = [
             models.Order(user_id=user.id, status="pending", created_at=ts)
             for _ in range(1000)
@@ -342,7 +369,9 @@ def test_thousand_orders_payload_size_and_serialization_speed(test_context):
         db.add_all(items)
         db.commit()
 
-        rows = db.query(models.Order.id, models.Order.status, models.Order.created_at).all()
+        rows = db.query(
+            models.Order.id, models.Order.status, models.Order.created_at
+        ).all()
         adapter = TypeAdapter(list[schemas.OrderSummaryOut])
         durations_ms = []
         for _ in range(9):
@@ -352,7 +381,9 @@ def test_thousand_orders_payload_size_and_serialization_speed(test_context):
             durations_ms.append((time.perf_counter() - start) * 1000)
 
         median_ms = statistics.median(durations_ms)
-        assert median_ms < 10.0, f"Expected median serialization < 10ms, got {median_ms:.2f}ms"
+        assert median_ms < 10.0, (
+            f"Expected median serialization < 10ms, got {median_ms:.2f}ms"
+        )
         assert len(serialized) < 80_000
     finally:
         db.close()
@@ -383,7 +414,7 @@ def setup_db():
     finally:
         Base.metadata.drop_all(bind=test_engine)
         test_engine.dispose()
-        if had_prev:
+        if had_prev and prev_override is not None:
             app.dependency_overrides[get_db] = prev_override
         else:
             app.dependency_overrides.pop(get_db, None)
@@ -426,6 +457,7 @@ def _seed_orders(n_orders: int, n_products: int = 25, items_per_order: int = 3):
     db = TestingSessionLocal()
     try:
         user = db.query(models.User).filter(models.User.username == "staff").first()
+        assert user is not None
         products = [
             models.Product(name=f"Product-{i}", price=3.5 + (i % 5) * 0.5, stock=5000)
             for i in range(n_products)
@@ -435,7 +467,7 @@ def _seed_orders(n_orders: int, n_products: int = 25, items_per_order: int = 3):
         for p in products:
             db.refresh(p)
 
-        base_time = datetime(2026, 11, 18, 8, 0, 0)
+        base_time = _naive_utc(2026, 11, 18, 8, 0, 0)
         for i in range(n_orders):
             order = models.Order(
                 user_id=user.id,
@@ -479,11 +511,11 @@ class QueryCounter:
         return len(self.statements)
 
 
-def _assert_order_summary_schema(order_json: dict):
+def _assert_order_summary_schema(order_json: dict[str, Any]):
     assert set(order_json.keys()) == {"id", "status", "created_at"}
 
 
-def _assert_order_schema(order_json: dict):
+def _assert_order_schema(order_json: dict[str, Any]):
     assert set(order_json.keys()) == {"id", "user_id", "status", "created_at", "items"}
     assert isinstance(order_json["items"], list)
     for item in order_json["items"]:
@@ -519,7 +551,9 @@ def test_list_orders_constant_query_count_across_dataset_sizes(auth_headers):
         _assert_order_summary_schema(body[0])
         counts.append(qc.count)
 
-    assert len(set(counts)) == 1, f"Expected constant query count across N=(50,200,500), got {counts}"
+    assert len(set(counts)) == 1, (
+        f"Expected constant query count across N=(50,200,500), got {counts}"
+    )
     assert counts[0] <= 4
 
 
@@ -585,8 +619,12 @@ def test_single_order_get_and_put_constant_query_count_across_item_counts(auth_h
         _assert_order_schema(put_data)
         put_counts.append(qc_put.count)
 
-    assert len(set(get_counts)) == 1, f"Expected constant GET query count across K=(1,4,8), got {get_counts}"
-    assert len(set(put_counts)) == 1, f"Expected constant PUT query count across K=(1,4,8), got {put_counts}"
+    assert len(set(get_counts)) == 1, (
+        f"Expected constant GET query count across K=(1,4,8), got {get_counts}"
+    )
+    assert len(set(put_counts)) == 1, (
+        f"Expected constant PUT query count across K=(1,4,8), got {put_counts}"
+    )
 
 
 def test_default_limit_and_newest_first_ordering(client, auth_headers):
@@ -608,8 +646,12 @@ def test_pagination_pages_traverse_all_records_without_overlap(client, auth_head
     _seed_orders(n_orders=25, n_products=5, items_per_order=2)
 
     p1 = client.get("/orders/", params={"limit": 10, "offset": 0}, headers=auth_headers)
-    p2 = client.get("/orders/", params={"limit": 10, "offset": 10}, headers=auth_headers)
-    p3 = client.get("/orders/", params={"limit": 10, "offset": 20}, headers=auth_headers)
+    p2 = client.get(
+        "/orders/", params={"limit": 10, "offset": 10}, headers=auth_headers
+    )
+    p3 = client.get(
+        "/orders/", params={"limit": 10, "offset": 20}, headers=auth_headers
+    )
 
     assert p1.status_code == 200 and p1.headers.get("x-has-more") == "true"
     assert p2.status_code == 200 and p2.headers.get("x-has-more") == "true"
@@ -626,28 +668,38 @@ def test_pagination_pages_traverse_all_records_without_overlap(client, auth_head
     assert combined == list(range(25, 0, -1))
 
 
-def test_exact_multiple_page_size_sets_has_more_false_on_last_page(client, auth_headers):
+def test_exact_multiple_page_size_sets_has_more_false_on_last_page(
+    client, auth_headers
+):
     _seed_orders(n_orders=20, n_products=4, items_per_order=2)
 
     p1 = client.get("/orders/", params={"limit": 10, "offset": 0}, headers=auth_headers)
-    p2 = client.get("/orders/", params={"limit": 10, "offset": 10}, headers=auth_headers)
+    p2 = client.get(
+        "/orders/", params={"limit": 10, "offset": 10}, headers=auth_headers
+    )
 
     assert p1.headers.get("x-has-more") == "true"
     assert p2.headers.get("x-has-more") == "false"
     assert len(p2.json()) == 10
 
 
-def test_pagination_validation_rejects_negative_offset_and_excessive_limit(client, auth_headers):
+def test_pagination_validation_rejects_negative_offset_and_excessive_limit(
+    client, auth_headers
+):
     neg_offset = client.get("/orders/", params={"offset": -1}, headers=auth_headers)
     assert neg_offset.status_code == 422
 
     zero_limit = client.get("/orders/", params={"limit": 0}, headers=auth_headers)
     assert zero_limit.status_code == 422
 
-    over_max = client.get("/orders/", params={"limit": MAX_PAGE_SIZE + 1}, headers=auth_headers)
+    over_max = client.get(
+        "/orders/", params={"limit": MAX_PAGE_SIZE + 1}, headers=auth_headers
+    )
     assert over_max.status_code == 422
 
-    at_max = client.get("/orders/", params={"limit": MAX_PAGE_SIZE}, headers=auth_headers)
+    at_max = client.get(
+        "/orders/", params={"limit": MAX_PAGE_SIZE}, headers=auth_headers
+    )
     assert at_max.status_code == 200
 
 
@@ -655,13 +707,14 @@ def test_status_and_date_filters_with_pagination(client, auth_headers):
     db = TestingSessionLocal()
     try:
         user = db.query(models.User).filter(models.User.username == "staff").first()
+        assert user is not None
         prod = models.Product(name="Latte", price=4.5, stock=100)
         db.add(prod)
         db.commit()
         db.refresh(prod)
 
-        day_one = datetime(2026, 11, 17, 14, 30, 0)
-        day_two = datetime(2026, 11, 18, 9, 15, 0)
+        day_one = _naive_utc(2026, 11, 17, 14, 30, 0)
+        day_two = _naive_utc(2026, 11, 18, 9, 15, 0)
 
         for idx, (dt, st) in enumerate(
             [
@@ -675,14 +728,21 @@ def test_status_and_date_filters_with_pagination(client, auth_headers):
             o = models.Order(user_id=user.id, status=st, created_at=dt)
             db.add(o)
             db.flush()
-            db.add(models.OrderItem(order_id=o.id, product_id=prod.id, quantity=idx + 1))
+            db.add(
+                models.OrderItem(order_id=o.id, product_id=prod.id, quantity=idx + 1)
+            )
         db.commit()
     finally:
         db.close()
 
     res = client.get(
         "/orders",
-        params={"status": "pending", "date_filter": "2026-11-18", "limit": 1, "offset": 0},
+        params={
+            "status": "pending",
+            "date_filter": "2026-11-18",
+            "limit": 1,
+            "offset": 0,
+        },
         headers=auth_headers,
     )
     assert res.status_code == 200
@@ -694,7 +754,12 @@ def test_status_and_date_filters_with_pagination(client, auth_headers):
 
     res_2 = client.get(
         "/orders",
-        params={"status": "pending", "date_filter": "2026-11-18", "limit": 1, "offset": 1},
+        params={
+            "status": "pending",
+            "date_filter": "2026-11-18",
+            "limit": 1,
+            "offset": 1,
+        },
         headers=auth_headers,
     )
     assert res_2.status_code == 200
@@ -709,7 +774,10 @@ def test_create_cancel_update_get_preserve_schema_and_auth(client, auth_headers)
     assert client.get("/orders/").status_code == 401
     assert client.get("/orders/1").status_code == 401
     assert client.put("/orders/1", params={"status": "completed"}).status_code == 401
-    assert client.post("/orders/", json={"status": "pending", "items": []}).status_code == 401
+    assert (
+        client.post("/orders/", json={"status": "pending", "items": []}).status_code
+        == 401
+    )
     assert client.post("/orders/1/cancel").status_code == 401
 
     db = TestingSessionLocal()
@@ -741,9 +809,14 @@ def test_create_cancel_update_get_preserve_schema_and_auth(client, auth_headers)
     fetched = client.get(f"/orders/{order_id}", headers=auth_headers)
     assert fetched.status_code == 200
     _assert_order_schema(fetched.json())
-    assert {it["product"]["name"] for it in fetched.json()["items"]} == {"Espresso", "Mocha"}
+    assert {it["product"]["name"] for it in fetched.json()["items"]} == {
+        "Espresso",
+        "Mocha",
+    }
 
-    updated = client.put(f"/orders/{order_id}", params={"status": "in_progress"}, headers=auth_headers)
+    updated = client.put(
+        f"/orders/{order_id}", params={"status": "in_progress"}, headers=auth_headers
+    )
     assert updated.status_code == 200
     _assert_order_schema(updated.json())
     assert updated.json()["status"] == "in_progress"
@@ -753,7 +826,10 @@ def test_create_cancel_update_get_preserve_schema_and_auth(client, auth_headers)
     _assert_order_schema(cancelled.json())
     assert cancelled.json()["status"] == "cancelled"
     # Stock restored
-    stocks = {it["product"]["name"]: it["product"]["stock"] for it in cancelled.json()["items"]}
+    stocks = {
+        it["product"]["name"]: it["product"]["stock"]
+        for it in cancelled.json()["items"]
+    }
     assert stocks == {"Espresso": 10, "Mocha": 5}
 
 
@@ -769,7 +845,7 @@ def _create_user(db_session, username: str, is_manager: bool = False) -> models.
     return user
 
 
-def _auth_headers(user: models.User) -> dict:
+def _auth_headers(user: models.User) -> dict[str, str]:
     token = auth.create_access_token({"sub": user.username})
     return {"Authorization": f"Bearer {token}"}
 
@@ -844,20 +920,18 @@ def seeded_data(db_session):
     db_session.commit()
     db_session.refresh(order)
 
+    owner_token = auth.create_access_token({"sub": owner.username})
+    other_token = auth.create_access_token({"sub": other_staff.username})
+    manager_token = auth.create_access_token({"sub": manager.username})
+
     return {
         "owner": owner,
         "other_staff": other_staff,
         "manager": manager,
         "order": order,
-        "owner_headers": {
-            "Authorization": f"Bearer {auth.create_access_token({'sub': owner.username})}"
-        },
-        "other_staff_headers": {
-            "Authorization": f"Bearer {auth.create_access_token({'sub': other_staff.username})}"
-        },
-        "manager_headers": {
-            "Authorization": f"Bearer {auth.create_access_token({'sub': manager.username})}"
-        },
+        "owner_headers": {"Authorization": f"Bearer {owner_token}"},
+        "other_staff_headers": {"Authorization": f"Bearer {other_token}"},
+        "manager_headers": {"Authorization": f"Bearer {manager_token}"},
     }
 
 
@@ -1012,7 +1086,9 @@ def test_cancel_order_unauthenticated_returns_401(client):
     assert res.status_code == 401
 
 
-def test_non_owner_non_manager_cannot_update_other_users_order(client, db_session, seeded_data):
+def test_non_owner_non_manager_cannot_update_other_users_order(
+    client, db_session, seeded_data
+):
     order_id = seeded_data["order"].id
 
     resp = client.put(
@@ -1028,7 +1104,9 @@ def test_non_owner_non_manager_cannot_update_other_users_order(client, db_sessio
     assert persisted.status == "pending"
 
 
-def test_non_owner_non_manager_tampered_status_returns_403(client, db_session, seeded_data):
+def test_non_owner_non_manager_tampered_status_returns_403(
+    client, db_session, seeded_data
+):
     order_id = seeded_data["order"].id
 
     resp = client.put(
@@ -1044,8 +1122,12 @@ def test_non_owner_non_manager_tampered_status_returns_403(client, db_session, s
     assert persisted.status == "pending"
 
 
-@pytest.mark.parametrize("valid_status", ["in_progress", "completed", "cancelled", "pending"])
-def test_order_owner_can_update_own_order_status(client, db_session, seeded_data, valid_status):
+@pytest.mark.parametrize(
+    "valid_status", ["in_progress", "completed", "cancelled", "pending"]
+)
+def test_order_owner_can_update_own_order_status(
+    client, db_session, seeded_data, valid_status
+):
     order_id = seeded_data["order"].id
 
     resp = client.put(
@@ -1061,8 +1143,12 @@ def test_order_owner_can_update_own_order_status(client, db_session, seeded_data
     assert persisted.status == valid_status
 
 
-@pytest.mark.parametrize("valid_status", ["in_progress", "completed", "cancelled", "pending"])
-def test_manager_can_update_any_users_order_status(client, db_session, seeded_data, valid_status):
+@pytest.mark.parametrize(
+    "valid_status", ["in_progress", "completed", "cancelled", "pending"]
+)
+def test_manager_can_update_any_users_order_status(
+    client, db_session, seeded_data, valid_status
+):
     order_id = seeded_data["order"].id
 
     resp = client.put(
@@ -1078,7 +1164,9 @@ def test_manager_can_update_any_users_order_status(client, db_session, seeded_da
     assert persisted.status == valid_status
 
 
-def test_non_existent_order_returns_404_before_auth_and_status_checks(client, seeded_data):
+def test_non_existent_order_returns_404_before_auth_and_status_checks(
+    client, seeded_data
+):
     for headers in (
         seeded_data["other_staff_headers"],
         seeded_data["owner_headers"],
@@ -1159,9 +1247,15 @@ def test_list_orders_non_manager_receives_only_own_orders(client, db_session):
     product = _create_product(db_session, stock=100)
 
     order_a1 = _create_order(db_session, staff_a, product, quantity=1, status="pending")
-    order_b1 = _create_order(db_session, staff_b, product, quantity=2, status="completed")
-    order_mgr = _create_order(db_session, manager, product, quantity=1, status="in_progress")
-    order_a2 = _create_order(db_session, staff_a, product, quantity=3, status="completed")
+    order_b1 = _create_order(
+        db_session, staff_b, product, quantity=2, status="completed"
+    )
+    order_mgr = _create_order(
+        db_session, manager, product, quantity=1, status="in_progress"
+    )
+    order_a2 = _create_order(
+        db_session, staff_a, product, quantity=3, status="completed"
+    )
 
     orphan_order = models.Order(user_id=None, status="pending")
     db_session.add(orphan_order)
@@ -1218,8 +1312,8 @@ def test_list_orders_preserves_status_date_and_pagination_for_non_managers_and_m
     staff_b = _create_user(db_session, "filter_staff_b", is_manager=False)
     manager = _create_user(db_session, "filter_manager", is_manager=True)
 
-    day_1 = datetime(2026, 11, 17, 10, 0, 0)
-    day_2 = datetime(2026, 11, 18, 15, 0, 0)
+    day_1 = _naive_utc(2026, 11, 17, 10, 0, 0)
+    day_2 = _naive_utc(2026, 11, 18, 15, 0, 0)
 
     records = [
         ("a_d1_pending", staff_a.id, "pending", day_1),
@@ -1261,7 +1355,7 @@ def test_list_orders_preserves_status_date_and_pagination_for_non_managers_and_m
         by_label["a_d2_pending"],
     ]
 
-    # Non-manager combined status + date_filter + limit=1 does not count other users' orders in X-Has-More
+    # Non-manager status + date_filter + limit=1 excludes others' orders in X-Has-More
     resp_a_combo = client.get(
         "/orders/",
         params={"status": "pending", "date_filter": "2026-11-18", "limit": 1},
@@ -1271,7 +1365,7 @@ def test_list_orders_preserves_status_date_and_pagination_for_non_managers_and_m
     assert [o["id"] for o in resp_a_combo.json()] == [by_label["a_d2_pending"]]
     assert resp_a_combo.headers.get("x-has-more") == "false"
 
-    # Manager combined status + date_filter sees all users' matching orders and accurate X-Has-More
+    # Manager status + date_filter sees all matching orders and accurate X-Has-More
     resp_mgr_combo = client.get(
         "/orders/",
         params={"status": "pending", "date_filter": "2026-11-18", "limit": 2},
@@ -1283,4 +1377,3 @@ def test_list_orders_preserves_status_date_and_pagination_for_non_managers_and_m
         by_label["b_d2_pending"],
     ]
     assert resp_mgr_combo.headers.get("x-has-more") == "true"
-

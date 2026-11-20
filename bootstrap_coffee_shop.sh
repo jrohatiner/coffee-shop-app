@@ -24,7 +24,7 @@ python-socketio[asgi]
 EOF
 
 cat > backend/Dockerfile << 'EOF'
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -33,35 +33,219 @@ ENV PORT=8080
 CMD ["uvicorn", "app.main:app", "--host","0.0.0.0","--port","8080"]
 EOF
 
+cat > backend/.dockerignore << 'EOF'
+# Build, CI/CD, and local scripts
+Dockerfile
+.dockerignore
+cloudbuild.yaml
+seed.py
+app/routers/_init_.py
+tests/
+
+# Git metadata
+.git/
+.gitignore
+
+# Python bytecode, virtualenvs, packaging, and local databases
+__pycache__/
+**/__pycache__/
+*.pyc
+**/*.pyc
+*.pyo
+**/*.pyo
+*.pyd
+**/*.pyd
+*.db
+**/*.db
+*.sqlite3
+**/*.sqlite3
+.venv/
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+**/*.log
+
+# Environment and secret files
+.env
+.env*
+.env.*
+
+# Frontend / Node artifacts
+node_modules/
+.next/
+out/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+*.code-workspace
+
+# Coverage and test caches
+.coverage
+htmlcov/
+pytest_cache/
+.pytest_cache/
+playwright-report/
+test-results/
+EOF
+
 cat > backend/cloudbuild.yaml << 'EOF'
 steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend','.']
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend']
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+  - id: 'validate-substitutions'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
     args:
-      [
-        'run','deploy','coffee-backend',
-        '--image','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend',
-        '--region','${_REGION}',
-        '--platform','managed',
-        '--allow-unauthenticated',
-        '--add-cloudsql-instances','${_CLOUD_SQL_INSTANCE}',
-        '--set-env-vars','DATABASE_URL=postgresql://postgres:${_DB_PASS}@localhost:5432/coffee,INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE},JWT_SECRET=${_JWT_SECRET}'
-      ]
+      - '-ceu'
+      - |
+        fail() { echo "ERROR: $$1" >&2; exit 1; }
+        check_val() {
+          local name="$$1" val="$$2" lower
+          lower="$$(printf '%s' "$$val" | tr '[:upper:]' '[:lower:]')"
+          if [[ -z "$${val//[[:space:]]/}" ]]; then
+            fail "$${name} must not be empty."
+          fi
+          if [[ "$$lower" == *your_* || "$$lower" == *your-* || "$$lower" == *replace* || "$$lower" == *changeme* || "$$lower" == *placeholder* || "$$val" == *"<"* || "$$val" == *">"* ]]; then
+            fail "$${name} contains an unconfigured placeholder value: '$${val}'."
+          fi
+        }
+        check_val "_CLOUD_SQL_INSTANCE" "$$1"
+        check_val "_BUILD_SERVICE_ACCOUNT" "$$2"
+        check_val "_RUN_SERVICE_ACCOUNT" "$$3"
+        check_val "_DB_URL_SECRET" "$$4"
+        check_val "_JWT_SECRET_NAME" "$$5"
+        if [[ ! "$$1" =~ ^[a-z0-9.:-]+:[a-z0-9-]+:[a-z0-9-]+$$ ]]; then
+          fail "_CLOUD_SQL_INSTANCE must match '<project>:<region>:<instance>', got '$$1'."
+        fi
+        if [[ ! "$$2" =~ ^[a-z0-9._-]+@[a-z0-9.-]+\.gserviceaccount\.com$$ ]]; then
+          fail "_BUILD_SERVICE_ACCOUNT must be a valid IAM service account email, got '$$2'."
+        fi
+        if [[ ! "$$3" =~ ^[a-z0-9._-]+@[a-z0-9.-]+\.gserviceaccount\.com$$ ]]; then
+          fail "_RUN_SERVICE_ACCOUNT must be a valid IAM service account email, got '$$3'."
+        fi
+      - '_'
+      - '${_CLOUD_SQL_INSTANCE}'
+      - '${_BUILD_SERVICE_ACCOUNT}'
+      - '${_RUN_SERVICE_ACCOUNT}'
+      - '${_DB_URL_SECRET}'
+      - '${_JWT_SECRET_NAME}'
+  - id: 'build-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        TAGS=("-t" "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID")
+        if [ -n "$COMMIT_SHA" ]; then
+          TAGS+=("-t" "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$COMMIT_SHA")
+        fi
+        docker build "$${TAGS[@]}" .
+  - id: 'test-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        TEST_PATHS=()
+        [ -f seed.py ] && TEST_PATHS+=("seed.py")
+        [ -f cloudbuild.yaml ] && TEST_PATHS+=("cloudbuild.yaml")
+        [ -f .env.example ] && TEST_PATHS+=(".env.example")
+        [ -d tests ] && TEST_PATHS+=("tests")
+        if [ "$${#TEST_PATHS[@]}" -gt 0 ]; then
+          tar -cf - "$${TEST_PATHS[@]}"
+        else
+          tar -cf - --files-from /dev/null
+        fi | docker run --rm -i \
+          -e JWT_SECRET=cloudbuild-test-jwt-secret-key \
+          "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" \
+          sh -ceu '
+            tar -xf - -C /app
+            unset DATABASE_URL
+            python -c "import app.main"
+            if [ -f seed.py ]; then
+              python seed.py
+            fi
+            rm -f dev.db
+            if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
+              pip install --no-cache-dir pytest httpx websockets pyyaml
+              PYTHONPATH=. python -m pytest -v
+            fi
+          '
+  - id: 'push-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        docker push "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID"
+        if [ -n "$COMMIT_SHA" ]; then
+          docker push "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$COMMIT_SHA"
+        fi
+        IMAGE_DIGEST="$$(docker image inspect "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" --format='{{range .RepoDigests}}{{println .}}{{end}}' | grep -F "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend@sha256:" | head -n 1 || true)"
+        if [ -z "$$IMAGE_DIGEST" ]; then
+          echo "Error: failed to resolve pushed @sha256: digest for ${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" >&2
+          exit 1
+        fi
+        printf '%s\n' "$$IMAGE_DIGEST" > /workspace/image-digest.txt
+  - id: 'deploy-cloud-run'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-ceu'
+      - |
+        IMAGE_DIGEST="$$(tr -d '[:space:]' < /workspace/image-digest.txt)"
+        if [[ "$$IMAGE_DIGEST" != "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend@sha256:"* ]]; then
+          echo "Error: expected immutable @sha256: digest in /workspace/image-digest.txt, got '$$IMAGE_DIGEST'" >&2
+          exit 1
+        fi
+        exec gcloud run deploy coffee-backend --image="$$IMAGE_DIGEST" "$$@"
+      - '_'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--service-account=${_RUN_SERVICE_ACCOUNT}'
+      - '--add-cloudsql-instances=${_CLOUD_SQL_INSTANCE}'
+      - '--set-env-vars=^|^INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE}|APP_ENV=production'
+      - '--set-secrets=DATABASE_URL=${_DB_URL_SECRET}:latest,JWT_SECRET=${_JWT_SECRET_NAME}:latest'
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID'
+serviceAccount: projects/$PROJECT_ID/serviceAccounts/${_BUILD_SERVICE_ACCOUNT}
+options:
+  logging: CLOUD_LOGGING_ONLY
+  requestedVerifyOption: VERIFIED
 substitutions:
   _REGION: 'us-central1'
   _CLOUD_SQL_INSTANCE: 'YOUR_PROJECT_ID:us-central1:coffee-db'
-  _DB_PASS: 'replace-me'
-  _JWT_SECRET: 'replace-me'
+  _BUILD_SERVICE_ACCOUNT: 'coffee-build@YOUR_PROJECT_ID.iam.gserviceaccount.com'
+  _RUN_SERVICE_ACCOUNT: 'coffee-run@YOUR_PROJECT_ID.iam.gserviceaccount.com'
+  _DB_URL_SECRET: 'coffee-db-url'
+  _JWT_SECRET_NAME: 'coffee-jwt-secret'
 EOF
 
 cat > backend/.env.example << 'EOF'
-DATABASE_URL=postgresql://postgres:YOUR_DB_PASSWORD@localhost:5432/coffee
-INSTANCE_UNIX_SOCKET=YOUR_PROJECT_ID:us-central1:coffee-db
-JWT_SECRET=replace-with-strong-random
+# Local development environment template.
+# Production Cloud Run deployments bind DATABASE_URL and JWT_SECRET from Secret Manager.
+APP_ENV=development
+DATABASE_URL=sqlite:///./dev.db
+# For local PostgreSQL:
+# DATABASE_URL=postgresql+psycopg2://postgres:YOUR_DB_PASSWORD@localhost:5432/coffee
+# INSTANCE_UNIX_SOCKET=YOUR_PROJECT_ID:us-central1:coffee-db
+
+# Local-only JWT signing secret (production enforces >= 32 unpredictable characters):
+JWT_SECRET=local-dev-secret-not-for-production
 EOF
 
 # Backend app files
@@ -150,7 +334,7 @@ class SalesReport(Base):
 EOF
 
 cat > backend/app/schemas.py << 'EOF'
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 
@@ -163,7 +347,7 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: int
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProductBase(BaseModel):
     name: str
@@ -174,7 +358,7 @@ class ProductCreate(ProductBase): pass
 
 class ProductOut(ProductBase):
     id: int
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderItemBase(BaseModel):
     product_id: int
@@ -185,7 +369,7 @@ class OrderItemCreate(OrderItemBase): pass
 class OrderItemOut(OrderItemBase):
     id: int
     product: ProductOut
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderBase(BaseModel):
     user_id: int
@@ -198,14 +382,14 @@ class OrderOut(OrderBase):
     id: int
     created_at: datetime
     items: List[OrderItemOut]
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SalesReportOut(BaseModel):
     id: int
     report_type: str
     total_sales: float
     created_at: datetime
-    class Config: orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class Token(BaseModel):
     access_token: str

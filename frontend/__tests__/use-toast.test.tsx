@@ -218,6 +218,43 @@ describe('Toaster and Input accessibility primitives', () => {
     )
   })
 
+  it('keeps border-control tokens on both default and destructive toast cards and dismiss buttons', () => {
+    toast({ title: 'Saved', description: 'Espresso' })
+    toast({
+      title: 'Error',
+      description: 'Failed to save',
+      variant: 'destructive',
+    })
+
+    const html = renderToStaticMarkup(
+      React.createElement(ToasterView, {
+        toasts: getToastsSnapshot(),
+        onDismiss: dismissToast,
+        onPause: pauseToast,
+        onResume: resumeToast,
+      })
+    )
+
+    const destructiveCardMatch = html.match(
+      /data-toast-variant="destructive"[^>]*class="([^"]+)"/
+    )
+    const defaultCardMatch = html.match(
+      /data-toast-variant="default"[^>]*class="([^"]+)"/
+    )
+    assert.ok(destructiveCardMatch, 'renders destructive toast card')
+    assert.ok(defaultCardMatch, 'renders default toast card')
+    assert.ok(destructiveCardMatch[1].split(/\s+/).includes('border-control'))
+    assert.ok(defaultCardMatch[1].split(/\s+/).includes('border-control'))
+
+    const buttonClassMatches = [
+      ...html.matchAll(/<button[^>]*class="([^"]+)"/g),
+    ]
+    assert.equal(buttonClassMatches.length, 2)
+    for (const match of buttonClassMatches) {
+      assert.ok(match[1].split(/\s+/).includes('border-control'))
+    }
+  })
+
   it('wires aria-invalid, aria-describedby, and inline error text in Input', () => {
     const html = renderToStaticMarkup(
       React.createElement(Input, {
