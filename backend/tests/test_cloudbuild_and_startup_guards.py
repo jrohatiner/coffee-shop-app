@@ -50,6 +50,8 @@ def _render_cloudbuild_arg(
 
 
 def _run_predeploy_step(overrides: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    if not CLOUDBUILD_PATH.exists():
+        pytest.skip("cloudbuild.yaml excluded from container context")
     cfg = yaml.safe_load(CLOUDBUILD_PATH.read_text())
     subs = {**cfg["substitutions"], **overrides}
     step = cfg["steps"][0]
@@ -91,9 +93,15 @@ def _run_isolated_import(
 
 
 def test_cloudbuild_yaml_hardened_structure_and_no_plaintext_secrets():
+    if not CLOUDBUILD_PATH.exists():
+        pytest.skip("cloudbuild.yaml excluded from container context")
     raw_text = CLOUDBUILD_PATH.read_text()
     assert "replace-me" not in raw_text
     assert "_DB_PASS" not in raw_text
+    assert not re.search(
+        r"coffee-repo/coffee-backend(?![:@])|coffee-repo/coffee-backend:latest\b",
+        raw_text,
+    )
 
     cfg = yaml.safe_load(raw_text)
     assert isinstance(cfg, dict)
@@ -102,6 +110,11 @@ def test_cloudbuild_yaml_hardened_structure_and_no_plaintext_secrets():
         == "projects/$PROJECT_ID/serviceAccounts/${_BUILD_SERVICE_ACCOUNT}"
     )
     assert cfg.get("options", {}).get("logging") == "CLOUD_LOGGING_ONLY"
+    assert cfg.get("options", {}).get("requestedVerifyOption") == "VERIFIED"
+    assert (
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID"
+        in cfg.get("images", [])
+    )
     assert "availableSecrets" not in cfg
 
     subs = cfg.get("substitutions", {})
@@ -127,9 +140,13 @@ def test_cloudbuild_yaml_hardened_structure_and_no_plaintext_secrets():
     ]
 
     deploy_step = cfg["steps"][-1]
-    assert deploy_step["entrypoint"] == "gcloud"
+    assert deploy_step["entrypoint"] == "bash"
+    assert "env" not in deploy_step
     args = deploy_step["args"]
-    assert args[:3] == ["run", "deploy", "coffee-backend"]
+    assert (
+        'exec gcloud run deploy coffee-backend --image="$$IMAGE_DIGEST" "$$@"'
+        in (args[1])
+    )
     assert "--allow-unauthenticated" in args
     assert "--service-account=${_RUN_SERVICE_ACCOUNT}" in args
     assert (
@@ -144,6 +161,8 @@ def test_cloudbuild_yaml_hardened_structure_and_no_plaintext_secrets():
 
 
 def test_gcloud_arg_parsing_handles_commas_equals_and_colons_in_secret_payloads():
+    if not CLOUDBUILD_PATH.exists():
+        pytest.skip("cloudbuild.yaml excluded from container context")
     cfg = yaml.safe_load(CLOUDBUILD_PATH.read_text())
     build_sa = "coffee-build@prod-coffee-123.iam.gserviceaccount.com"
     run_sa = "coffee-run@prod-coffee-123.iam.gserviceaccount.com"
@@ -333,6 +352,8 @@ def test_production_database_startup_rejects_missing_or_placeholder_db_config(
 
 
 def test_local_env_example_workflow_preserved_without_production_flags(tmp_path):
+    if not ENV_EXAMPLE_PATH.exists():
+        pytest.skip(".env.example excluded from container context")
     local_env_file = tmp_path / ".env"
     local_env_file.write_text(ENV_EXAMPLE_PATH.read_text())
 
