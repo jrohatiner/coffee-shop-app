@@ -414,12 +414,16 @@ def test_orders_date_filter_utc_boundaries_and_combined_status(db_env):
         label_to_id["day_end"],
     }
 
-    # Verify OrderOut response schema preservation
+    # Verify OrderSummaryOut list response and OrderOut detail schema preservation
     sample = resp_date.json()[0]
-    assert set(sample.keys()) == {"id", "user_id", "status", "created_at", "items"}
-    assert len(sample["items"]) == 1
-    assert set(sample["items"][0].keys()) == {"id", "product_id", "quantity", "product"}
-    assert set(sample["items"][0]["product"].keys()) == {"id", "name", "price", "stock"}
+    assert set(sample.keys()) == {"id", "status", "created_at"}
+    detail_resp = client.get(f"/orders/{sample['id']}", headers=headers)
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert set(detail.keys()) == {"id", "user_id", "status", "created_at", "items"}
+    assert len(detail["items"]) == 1
+    assert set(detail["items"][0].keys()) == {"id", "product_id", "quantity", "product"}
+    assert set(detail["items"][0]["product"].keys()) == {"id", "name", "price", "stock"}
 
     # 2. Combined status + date_filter
     resp_combo = client.get(
