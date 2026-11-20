@@ -26,8 +26,9 @@ jest.mock('../components/ui/use-toast', () => ({
 }))
 
 const mockUser = { exp: 4102444800, sub: 'manager' }
+let currentAuthUser: { exp: number; sub: string } | null = mockUser
 jest.mock('../hooks/useAuth', () => ({
-  useAuth: () => mockUser,
+  useAuth: () => currentAuthUser,
 }))
 
 type Listener = (...args: any[]) => void
@@ -115,6 +116,7 @@ import Orders, {
   OrdersTable,
   ProductPickerRow,
 } from '../pages/orders'
+import Reports from '../pages/reports'
 
 const flushPromises = () => new Promise((resolve) => setImmediate(resolve))
 
@@ -153,6 +155,7 @@ describe('Staff pages state isolation and row memoization', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     socketListeners = {}
+    currentAuthUser = mockUser
   })
 
   describe('Inventory page', () => {
@@ -1014,6 +1017,368 @@ describe('Staff pages state isolation and row memoization', () => {
         await flushPromises()
       })
       expect(mockApi.get).toHaveBeenCalledWith('/inventory')
+
+      renderer.unmount()
+    })
+  })
+
+  describe('Reports page', () => {
+    const makeReports = (
+      period: string,
+      count: number,
+      startId = 1,
+      baseSales = 100
+    ) =>
+      Array.from({ length: count }, (_, idx) => ({
+        id: startId + idx,
+        report_type: period,
+        total_sales: baseSales + idx * 12.5,
+        created_at: `2026-11-${String(Math.min(28, idx + 1)).padStart(2, '0')}T12:00:00Z`,
+      }))
+
+    const getTextContent = (node: ReactTestInstance): string =>
+      node.children
+        .map((child) =>
+          typeof child === 'string' ? child : getTextContent(child)
+        )
+        .join('')
+
+    const triggerTablistKey = (root: ReactTestInstance, key: string) => {
+      const tablistNode = root.findByProps({ role: 'tablist' })
+      const tabNodes = tablistNode.findAll(
+        (n) => n.type === 'button' && n.props.role === 'tab'
+      )
+      const mockTablist: any = {}
+      const mockTabs = tabNodes.map((n) => ({
+        focus: jest.fn(),
+        closest: (selector: string) =>
+          selector === '[role="tablist]' || selector === '[role="tablist"]'
+            ? mockTablist
+            : null,
+        getAttribute: (attr: string) => {
+          if (attr === 'aria-selected')
+            return String(Boolean(n.props['aria-selected']))
+          if (attr === 'aria-disabled')
+            return String(Boolean(n.props['aria-disabled']))
+          if (attr === 'data-value') return n.props['data-value'] ?? null
+          return n.props[attr] ?? null
+        },
+      }))
+      mockTablist.querySelectorAll = () => mockTabs
+      const activeIdx = tabNodes.findIndex(
+        (n) => n.props['aria-selected'] === true
+      )
+      const activeTabMock = mockTabs[activeIdx >= 0 ? activeIdx : 0]
+      mockTablist.ownerDocument = { activeElement: activeTabMock }
+      tablistNode.props.onKeyDown({
+        key,
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        defaultPrevented: false,
+        preventDefault: jest.fn(),
+        currentTarget: mockTablist,
+        target: {
+          closest: (selector: string) =>
+            selector === '[role="tab"]' ? activeTabMock : null,
+        },
+      })
+    }
+
+    test('retains cached slices per tab and skips refetching when loadedPage === page', async () => {
+      const dailyPage1 = makeReports('daily', 20, 1, 150)
+      const weeklyPage1 = makeReports('weekly', 3, 201, 900)
+
+      mockApi.get.mockImplementation((url: string) => {
+        if (url === '/reports/daily') {
+          return Promise.resolve({
+            data: dailyPage1,
+            headers: { 'x-has-more': 'true' },
+          })
+        }
+        if (url === '/reports/weekly') {
+          return Promise.resolve({
+            data: weeklyPage1,
+            headers: { 'x-has-more': 'false' },
+          })
+        }
+        return Promise.resolve({ data: [], headers: { 'x-has-more': 'false' } })
+      })
+
+      let renderer!: TestRenderer.ReactTestRenderer
+      await act(async () => {
+        renderer = TestRenderer.create(<Reports />)
+        await flushPromises()
+      })
+
+      expect(mockApi.get).toHaveBeenCalledTimes(1)
+      expect(mockApi.get).toHaveBeenLastCalledWith(
+        '/reports/daily',
+        expect.objectContaining({
+          params: { limit: 20, offset: 0 },
+          signal: expect.any(AbortSignal),
+        })
+      )
+
+      // Active panel keeps <ul> and <li> markup and enables Next when x-has-more is true
+      const dailyItems = renderer.root.findByType('ul').findAllByType('li')
+      expect(dailyItems).toHaveLength(20)
+      expect(getTextContent(dailyItems[0])).toBe('DAILY — $150.00')
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        true
+      )
+      expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(false)
+
+      // Switch to Weekly -> fetches /reports/weekly once
+      const weeklyTab = findButtonByText(renderer.root, 'Weekly')
+      await act(async () => {
+        weeklyTab.props.onClick({})
+        await flushPromises()
+      })
+
+      expect(mockApi.get).toHaveBeenCalledTimes(2)
+      expect(mockApi.get).toHaveBeenLastCalledWith(
+        '/reports/weekly',
+        expect.objectContaining({
+          params: { limit: 20, offset: 0 },
+          signal: expect.any(AbortSignal),
+        })
+      )
+      const weeklyItems = renderer.root.findByType('ul').findAllByType('li')
+      expect(weeklyItems).toHaveLength(3)
+      expect(getTextContent(weeklyItems[0])).toBe('WEEKLY — $900.00')
+      expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(true)
+
+      // Switch back to Daily -> skips network request and restores cached Daily slice
+      const dailyTab = findButtonByText(renderer.root, 'Daily')
+      await act(async () => {
+        dailyTab.props.onClick({})
+        await flushPromises()
+      })
+
+      expect(mockApi.get).toHaveBeenCalledTimes(2)
+      const restoredDailyItems = renderer.root
+        .findByType('ul')
+        .findAllByType('li')
+      expect(restoredDailyItems).toHaveLength(20)
+      expect(getTextContent(restoredDailyItems[0])).toBe('DAILY — $150.00')
+      expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(false)
+
+      renderer.unmount()
+    })
+
+    test('pages with Previous and Next and preserves each tab page across tab switches', async () => {
+      const dailyPage1 = makeReports('daily', 20, 1, 100)
+      const dailyPage2 = makeReports('daily', 5, 21, 400)
+      const monthlyPage1 = makeReports('monthly', 2, 301, 3200)
+
+      mockApi.get.mockImplementation(
+        (url: string, cfg?: { params?: { offset?: number } }) => {
+          if (url === '/reports/daily') {
+            if (cfg?.params?.offset === 20) {
+              return Promise.resolve({
+                data: dailyPage2,
+                headers: { 'x-has-more': 'false' },
+              })
+            }
+            return Promise.resolve({
+              data: dailyPage1,
+              headers: { 'x-has-more': 'true' },
+            })
+          }
+          if (url === '/reports/monthly') {
+            return Promise.resolve({
+              data: monthlyPage1,
+              headers: { 'x-has-more': 'false' },
+            })
+          }
+          return Promise.resolve({
+            data: [],
+            headers: { 'x-has-more': 'false' },
+          })
+        }
+      )
+
+      let renderer!: TestRenderer.ReactTestRenderer
+      await act(async () => {
+        renderer = TestRenderer.create(<Reports />)
+        await flushPromises()
+      })
+
+      // Advance Daily to page 2
+      await act(async () => {
+        findButtonByText(renderer.root, 'Next').props.onClick()
+        await flushPromises()
+      })
+
+      expect(mockApi.get).toHaveBeenLastCalledWith(
+        '/reports/daily',
+        expect.objectContaining({
+          params: { limit: 20, offset: 20 },
+          signal: expect.any(AbortSignal),
+        })
+      )
+      expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(5)
+      expect(
+        getTextContent(renderer.root.findByType('ul').findAllByType('li')[0])
+      ).toBe('DAILY — $400.00')
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        false
+      )
+      expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(true)
+
+      // Switch to Monthly and back to Daily -> Daily stays on cached Page 2 without refetching
+      await act(async () => {
+        findButtonByText(renderer.root, 'Monthly').props.onClick({})
+        await flushPromises()
+      })
+      expect(mockApi.get).toHaveBeenCalledTimes(3)
+
+      mockApi.get.mockClear()
+      await act(async () => {
+        findButtonByText(renderer.root, 'Daily').props.onClick({})
+        await flushPromises()
+      })
+      expect(mockApi.get).not.toHaveBeenCalled()
+      expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(5)
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        false
+      )
+      expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(true)
+
+      // Navigate Previous on Daily -> fetches page 1 (offset 0)
+      await act(async () => {
+        findButtonByText(renderer.root, 'Previous').props.onClick()
+        await flushPromises()
+      })
+      expect(mockApi.get).toHaveBeenCalledTimes(1)
+      expect(mockApi.get).toHaveBeenLastCalledWith(
+        '/reports/daily',
+        expect.objectContaining({
+          params: { limit: 20, offset: 0 },
+          signal: expect.any(AbortSignal),
+        })
+      )
+      expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(
+        20
+      )
+      expect(findButtonByText(renderer.root, 'Previous').props.disabled).toBe(
+        true
+      )
+      expect(findButtonByText(renderer.root, 'Next').props.disabled).toBe(false)
+
+      renderer.unmount()
+    })
+
+    test('aborts superseded requests on rapid Arrow/Home/End keypresses without treating canceled promises as load errors', async () => {
+      type PendingCall = {
+        url: string
+        signal: AbortSignal
+        resolve: (val: any) => void
+        reject: (err: any) => void
+      }
+      const pendingCalls: PendingCall[] = []
+
+      mockApi.get.mockImplementation(
+        (url: string, cfg?: { signal?: AbortSignal }) => {
+          return new Promise((resolve, reject) => {
+            pendingCalls.push({
+              url,
+              signal: cfg!.signal!,
+              resolve,
+              reject,
+            })
+          })
+        }
+      )
+
+      let renderer!: TestRenderer.ReactTestRenderer
+      await act(async () => {
+        renderer = TestRenderer.create(<Reports />)
+      })
+
+      expect(pendingCalls).toHaveLength(1)
+      expect(pendingCalls[0].url).toBe('/reports/daily')
+      expect(pendingCalls[0].signal.aborted).toBe(false)
+
+      // Rapid keyboard navigation: ArrowRight (weekly) -> End (monthly) -> Home (daily) -> ArrowLeft (monthly)
+      await act(async () => {
+        triggerTablistKey(renderer.root, 'ArrowRight')
+      })
+      expect(pendingCalls[0].signal.aborted).toBe(true)
+      expect(pendingCalls[1].url).toBe('/reports/weekly')
+      expect(pendingCalls[1].signal.aborted).toBe(false)
+
+      await act(async () => {
+        triggerTablistKey(renderer.root, 'End')
+      })
+      expect(pendingCalls[1].signal.aborted).toBe(true)
+      expect(pendingCalls[2].url).toBe('/reports/monthly')
+
+      await act(async () => {
+        triggerTablistKey(renderer.root, 'Home')
+      })
+      expect(pendingCalls[2].signal.aborted).toBe(true)
+      expect(pendingCalls[3].url).toBe('/reports/daily')
+
+      await act(async () => {
+        triggerTablistKey(renderer.root, 'ArrowLeft')
+      })
+      expect(pendingCalls[3].signal.aborted).toBe(true)
+      expect(pendingCalls[4].url).toBe('/reports/monthly')
+      expect(pendingCalls[4].signal.aborted).toBe(false)
+
+      // Canceled rejections and stale out-of-order resolutions do not show error toasts or overwrite state
+      await act(async () => {
+        pendingCalls[0].reject({ name: 'CanceledError', code: 'ERR_CANCELED' })
+        pendingCalls[1].reject(
+          Object.assign(new Error('The operation was aborted.'), {
+            name: 'AbortError',
+          })
+        )
+        pendingCalls[2].resolve({
+          data: [{ id: 999, report_type: 'monthly', total_sales: 9999 }],
+          headers: { 'x-has-more': 'false' },
+        })
+        pendingCalls[3].resolve({
+          data: [{ id: 888, report_type: 'daily', total_sales: 8888 }],
+          headers: { 'x-has-more': 'false' },
+        })
+        await flushPromises()
+      })
+
+      expect(mockToast).not.toHaveBeenCalled()
+      expect(renderer.root.findByType('ul').findAllByType('li')).toHaveLength(0)
+
+      // Final in-flight Monthly request resolves cleanly
+      await act(async () => {
+        pendingCalls[4].resolve({
+          data: [{ id: 501, report_type: 'monthly', total_sales: 3600 }],
+          headers: { 'x-has-more': 'false' },
+        })
+        await flushPromises()
+      })
+
+      expect(mockToast).not.toHaveBeenCalled()
+      expect(pendingCalls[4].signal.aborted).toBe(false)
+      const items = renderer.root.findByType('ul').findAllByType('li')
+      expect(items).toHaveLength(1)
+      expect(getTextContent(items[0])).toBe('MONTHLY — $3600.00')
+
+      renderer.unmount()
+    })
+
+    test('issues zero requests when unauthenticated', async () => {
+      currentAuthUser = null
+
+      let renderer!: TestRenderer.ReactTestRenderer
+      await act(async () => {
+        renderer = TestRenderer.create(<Reports />)
+        await flushPromises()
+      })
+
+      expect(renderer.toJSON()).toBeNull()
+      expect(mockApi.get).not.toHaveBeenCalled()
 
       renderer.unmount()
     })
