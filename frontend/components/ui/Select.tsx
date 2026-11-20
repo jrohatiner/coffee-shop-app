@@ -3,10 +3,13 @@ import { twMerge } from 'tailwind-merge'
 
 export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
   label?: React.ReactNode
+  hideLabel?: boolean
   labelId?: string
   labelClassName?: string
   wrapperClassName?: string
   helperText?: React.ReactNode
+  error?: string
+  errorId?: string
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
@@ -14,12 +17,16 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     {
       id,
       label,
+      hideLabel = false,
       labelId: providedLabelId,
       labelClassName = '',
       wrapperClassName = '',
       helperText,
+      error,
+      errorId,
       className = '',
       children,
+      'aria-invalid': ariaInvalid,
       'aria-describedby': ariaDescribedBy,
       ...props
     },
@@ -29,16 +36,27 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     const selectId = id ?? generatedId
     const computedLabelId = providedLabelId ?? `${selectId}-label`
     const helperId = helperText ? `${selectId}-helper` : undefined
+    const resolvedErrorId = error ? (errorId ?? `${selectId}-error`) : undefined
+    const hasError = Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'
+    const resolvedAriaInvalid = error
+      ? 'true'
+      : ariaInvalid === true
+        ? 'true'
+        : ariaInvalid === false
+          ? 'false'
+          : ariaInvalid
     const describedBy =
-      [ariaDescribedBy, helperId].filter(Boolean).join(' ') || undefined
+      [ariaDescribedBy, helperId, resolvedErrorId].filter(Boolean).join(' ') || undefined
 
     const selectElement = (
       <select
         ref={ref}
         id={selectId}
+        aria-invalid={resolvedAriaInvalid}
         aria-describedby={describedBy}
         className={twMerge(
           'border border-control rounded px-3 py-2 bg-white text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600',
+          hasError && 'border-red-700 focus-visible:outline-red-700',
           className
         )}
         {...props}
@@ -47,25 +65,36 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       </select>
     )
 
-    if (!label && !helperText) {
+    if (!label && !helperText && !error) {
       return selectElement
     }
 
     return (
-      <div className={wrapperClassName || 'space-y-1'}>
+      <div className={wrapperClassName || (hideLabel ? '' : 'space-y-1')}>
         {label && (
           <label
             id={computedLabelId}
             htmlFor={selectId}
-            className={twMerge('block text-sm font-medium text-gray-800', labelClassName)}
+            className={twMerge(
+              hideLabel ? 'sr-only' : 'block text-sm font-medium text-gray-800',
+              labelClassName
+            )}
           >
             {label}
           </label>
         )}
         {selectElement}
         {helperText && (
-          <p id={helperId} className="text-sm text-gray-600">
+          <p id={helperId} className={twMerge('text-sm text-gray-600', hideLabel && 'mt-1')}>
             {helperText}
+          </p>
+        )}
+        {error && (
+          <p
+            id={resolvedErrorId}
+            className="mt-1 flex items-start gap-1.5 text-sm font-medium text-red-800"
+          >
+            <span>{error}</span>
           </p>
         )}
       </div>
