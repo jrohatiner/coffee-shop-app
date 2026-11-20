@@ -20,14 +20,18 @@ export JWT_SECRET="local-dev-jwt-secret-key-12345"
 python -c "import app.main"
 python seed.py
 ```
+
 uvicorn app.main:app --reload
 
 # Optional: point DATABASE_URL at local PostgreSQL via .env (copied from .env.example)
+
 # export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/coffee"
 
 # Run backend test suite (matches CI backend-checks)
+
 PYTHONPATH=. python -m pytest -v
-```
+
+````
 
 ### Frontend
 ```bash
@@ -39,6 +43,6 @@ npm run build
 
 # Start local dev server on http://localhost:3000
 npm run dev
-```
+````
 
 See [AGENTS.md](./AGENTS.md) for full local CI and Cloud Build verification commands.

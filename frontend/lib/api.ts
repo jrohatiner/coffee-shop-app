@@ -1,7 +1,13 @@
 import axios from 'axios'
-const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-})
+const resolveApiBaseUrl = (): string => {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim()
+  if (configured) {
+    return configured === '/' ? '' : configured.replace(/\/+$/, '')
+  }
+  return process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000'
+}
+
+const api = axios.create({ baseURL: resolveApiBaseUrl() })
 
 api.interceptors.request.use((cfg) => {
   if (typeof window !== 'undefined') {
