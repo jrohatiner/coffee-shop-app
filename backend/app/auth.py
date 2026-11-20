@@ -10,12 +10,20 @@ from sqlalchemy.orm import Session
 
 from app import database, models, schemas
 
-try:
-    from dotenv import load_dotenv
 
-    load_dotenv()
-except Exception:
-    pass
+def is_production_env() -> bool:
+    return os.getenv("APP_ENV", "").strip().lower() == "production" or bool(
+        os.getenv("K_SERVICE", "").strip()
+    )
+
+
+if not is_production_env():
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except Exception:
+        pass
 
 
 class ConfigurationError(RuntimeError, ValueError):
@@ -26,13 +34,30 @@ class ConfigurationError(RuntimeError, ValueError):
 
 INSECURE_SECRETS = {
     "dev_secret_key",
+    "dev-secret",
     "secret",
     "password",
     "changeme",
     "replace-me",
     "replace-with-strong-random",
+    "replace-with-a-strong-random-secret",
+    "your_project_id",
+    "your_db_password",
 }
+PRODUCTION_PLACEHOLDER_MARKERS = (
+    "replace-me",
+    "replace_me",
+    "replace-with",
+    "dev_secret_key",
+    "your_project_id",
+    "your_db_password",
+    "your-project-id",
+    "your-db-password",
+    "changeme",
+    "local-dev-secret-not-for-production",
+)
 MIN_SECRET_LENGTH = 8
+PRODUCTION_MIN_SECRET_LENGTH = 32
 
 
 def get_jwt_secret() -> str:
@@ -40,11 +65,23 @@ def get_jwt_secret() -> str:
     if secret is None or not secret.strip():
         raise ConfigurationError("JWT_SECRET environment variable is missing or blank.")
     secret = secret.strip()
-    if secret in INSECURE_SECRETS or len(secret) < MIN_SECRET_LENGTH:
+    lower_secret = secret.lower()
+    if lower_secret in INSECURE_SECRETS or len(secret) < MIN_SECRET_LENGTH:
         raise ConfigurationError(
             "JWT_SECRET environment variable is insecure. "
             "Please provide a strong, unpredictable secret."
         )
+    if is_production_env():
+        if any(marker in lower_secret for marker in PRODUCTION_PLACEHOLDER_MARKERS):
+            raise ConfigurationError(
+                "JWT_SECRET environment variable uses an unconfigured "
+                "placeholder value in production."
+            )
+        if len(secret) < PRODUCTION_MIN_SECRET_LENGTH:
+            raise ConfigurationError(
+                "JWT_SECRET environment variable is insecure in production: "
+                f"minimum length is {PRODUCTION_MIN_SECRET_LENGTH} characters."
+            )
     return secret
 
 
