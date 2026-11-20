@@ -5,6 +5,7 @@ import api from '../lib/api'
 import { toast } from '../components/ui/use-toast'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
+import FormErrorBanner from '../components/ui/FormErrorBanner'
 import { useSocket } from '../hooks/useSocket'
 import {
   hasDeleteDetail,
@@ -193,19 +194,39 @@ export const ProductRow = memo(function ProductRow({
 
 export default function Inventory() {
   const user = useAuth()
+  const username = user?.sub ?? null
   const [products, setProducts] = useState<Product[]>([])
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const requestSeqRef = useRef(0)
   const pendingLocalStockRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   const load = useCallback(() => {
+    const seq = ++requestSeqRef.current
+    setIsLoading(true)
+    setLoadError(null)
     return api
       .get('/inventory')
-      .then(r => setProducts(r.data))
-      .catch(() => {})
+      .then(r => {
+        if (seq !== requestSeqRef.current) return
+        setProducts(r.data)
+        setLoadError(null)
+        setIsLoading(false)
+      })
+      .catch((err: any) => {
+        if (seq !== requestSeqRef.current) return
+        const detail = err?.response?.data?.detail
+        setProducts([])
+        setLoadError(
+          typeof detail === 'string' && detail.trim() ? detail : 'Failed to load inventory'
+        )
+        setIsLoading(false)
+      })
   }, [])
 
   useEffect(() => {
-    if (user) load()
-  }, [user, load])
+    if (username) load()
+  }, [username, load])
 
   useEffect(() => {
     return () => {
@@ -269,6 +290,7 @@ export default function Inventory() {
         const created = toProductItem(res?.data)
         if (created) {
           armLocalEchoToken(stockEchoToken)
+          setLoadError(null)
           setProducts(prev =>
             reconcileProductsDelta(prev, { updated: [created], deleted_ids: [] })
           )
@@ -294,6 +316,7 @@ export default function Inventory() {
         }, LOCAL_SOCKET_ECHO_TTL_MS)
         ;(expiry as any)?.unref?.()
         pendingLocalStockRef.current.push(expiry)
+        setLoadError(null)
         setProducts(prev => reconcileProductsDelta(prev, { updated: [parsed], deleted_ids: [] }))
         return
       }
@@ -371,9 +394,21 @@ export default function Inventory() {
       {/* Existing Products */}
       <section className="space-y-3">
         <h2 className="font-semibold text-lg">Products</h2>
-        {products.map(p => (
-          <ProductRow key={p.id} product={p} onSave={save} onDelete={del} />
-        ))}
+        {isLoading && (
+          <div role="status" aria-live="polite" className="text-sm text-gray-700">
+            Loading inventory...
+          </div>
+        )}
+        {!isLoading && loadError && <FormErrorBanner message={loadError} />}
+        {!isLoading && !loadError && products.length === 0 && (
+          <div role="status" aria-live="polite" className="text-sm text-gray-700">
+            No products in inventory.
+          </div>
+        )}
+        {!loadError &&
+          products.map(p => (
+            <ProductRow key={p.id} product={p} onSave={save} onDelete={del} />
+          ))}
       </section>
     </div>
   )

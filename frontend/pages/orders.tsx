@@ -18,6 +18,7 @@ import OrderDetailModal from '../components/OrderDetailModal'
 import { useSocket } from '../hooks/useSocket'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
+import FormErrorBanner from '../components/ui/FormErrorBanner'
 import type { Socket } from 'socket.io-client'
 import {
   extractOrderStockDelta,
@@ -84,10 +85,14 @@ export const ProductPickerRow = memo(function ProductPickerRow({
 
 export const OrderCreator = memo(function OrderCreator({
   products,
+  isProductsLoading = false,
+  productsError = null,
   onOrderCreated,
   onSubmitOrder,
 }: {
   products: Product[]
+  isProductsLoading?: boolean
+  productsError?: string | null
   onOrderCreated: () => void | Promise<unknown>
   onSubmitOrder?: (payload: {
     status: OrderStatus
@@ -153,16 +158,29 @@ export const OrderCreator = memo(function OrderCreator({
       <div className="grid md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <div className="font-medium">Pick Products</div>
-          <div className="space-y-2 max-h-80 overflow-auto pr-2">
-            {products.map(p => (
-              <ProductPickerRow
-                key={p.id}
-                product={p}
-                quantity={cart[p.id] ?? 0}
-                onChangeQty={setQty}
-              />
-            ))}
-          </div>
+          {isProductsLoading && (
+            <div role="status" aria-live="polite" className="text-sm text-gray-700">
+              Loading products...
+            </div>
+          )}
+          {!isProductsLoading && productsError && <FormErrorBanner message={productsError} />}
+          {!isProductsLoading && !productsError && products.length === 0 && (
+            <div role="status" aria-live="polite" className="text-sm text-gray-700">
+              No products available.
+            </div>
+          )}
+          {!productsError && (
+            <div className="space-y-2 max-h-80 overflow-auto pr-2">
+              {products.map(p => (
+                <ProductPickerRow
+                  key={p.id}
+                  product={p}
+                  quantity={cart[p.id] ?? 0}
+                  onChangeQty={setQty}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="space-y-3">
@@ -192,7 +210,7 @@ export const OrderCreator = memo(function OrderCreator({
                 )
               })}
               {Object.keys(cart).length === 0 && (
-                <li className="text-gray-500 text-sm">No items added</li>
+                <li className="text-gray-600 text-sm">No items added</li>
               )}
             </ul>
           </div>
@@ -272,8 +290,10 @@ export const OrdersTable = memo(function OrdersTable({
         ))}
         {orders.length === 0 && (
           <TableRow>
-            <TableCell colSpan={4} className="p-4 text-center text-gray-500">
-              No orders found.
+            <TableCell colSpan={4} className="p-4 text-center text-gray-700">
+              <div role="status" aria-live="polite">
+                No orders found.
+              </div>
             </TableCell>
           </TableRow>
         )}
@@ -359,7 +379,7 @@ const OrdersPagination = memo(function OrdersPagination({
 }) {
   return (
     <div className="flex items-center justify-between pt-2">
-      <div className="text-sm text-gray-600">
+      <div role="status" aria-live="polite" className="text-sm text-gray-700">
         Page {page} · Showing {ordersCount} {ordersCount === 1 ? 'order' : 'orders'}
       </div>
       <div className="flex items-center gap-2">
@@ -386,8 +406,12 @@ export default function Orders() {
   const user = useAuth()
   const username = user?.sub ?? null
   const [orders, setOrders] = useState<OrderSummary[]>([])
+  const [isOrdersLoading, setIsOrdersLoading] = useState<boolean>(true)
+  const [ordersError, setOrdersError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
+  const [isProductsLoading, setIsProductsLoading] = useState<boolean>(true)
+  const [productsError, setProductsError] = useState<string | null>(null)
 
   const [page, setPage] = useState<number>(1)
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
@@ -396,6 +420,7 @@ export default function Orders() {
   const [hasMore, setHasMore] = useState<boolean>(false)
 
   const requestSeqRef = useRef(0)
+  const productsSeqRef = useRef(0)
   const pendingLocalCreatesRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const pendingLocalCancelsRef = useRef<Map<number, ReturnType<typeof setTimeout> | null>>(new Map())
   const pendingLocalStockRef = useRef<ReturnType<typeof setTimeout>[]>([])
@@ -427,11 +452,14 @@ export default function Orders() {
   }, [])
 
   const applyStockDelta = useCallback((delta: StockDelta) => {
+    setProductsError(null)
     setProducts(prev => reconcileProductsDelta(prev, delta))
   }, [])
 
   const fetchOrders = useCallback(() => {
     const seq = ++requestSeqRef.current
+    setIsOrdersLoading(true)
+    setOrdersError(null)
     const params: Record<string, string | number> = {
       limit: pageSize,
       offset: (page - 1) * pageSize,
@@ -445,27 +473,50 @@ export default function Orders() {
         if (seq !== requestSeqRef.current) return
         const data: OrderSummary[] = r.data
         setOrders(data)
+        setOrdersError(null)
         const headerHasMore = r.headers?.['x-has-more']
         const more =
           headerHasMore !== undefined
             ? String(headerHasMore).toLowerCase() === 'true'
             : data.length === pageSize
         setHasMore(more)
+        setIsOrdersLoading(false)
       })
-      .catch(() => {
+      .catch((err: any) => {
         if (seq !== requestSeqRef.current) return
+        const detail = err?.response?.data?.detail
+        const message =
+          typeof detail === 'string' && detail.trim() ? detail : 'Failed to load orders'
+        setOrders([])
+        setHasMore(false)
+        setOrdersError(message)
+        setIsOrdersLoading(false)
         toast({ title: 'Error', description: 'Failed to load orders', variant: 'destructive' })
       })
   }, [page, pageSize, statusFilter, dateFilter])
 
-  const loadProducts = useCallback(
-    () =>
-      api
-        .get('/inventory')
-        .then(r => setProducts(r.data))
-        .catch(() => {}),
-    []
-  )
+  const loadProducts = useCallback(() => {
+    const seq = ++productsSeqRef.current
+    setIsProductsLoading(true)
+    setProductsError(null)
+    return api
+      .get('/inventory')
+      .then(r => {
+        if (seq !== productsSeqRef.current) return
+        setProducts(r.data)
+        setProductsError(null)
+        setIsProductsLoading(false)
+      })
+      .catch((err: any) => {
+        if (seq !== productsSeqRef.current) return
+        const detail = err?.response?.data?.detail
+        setProducts([])
+        setProductsError(
+          typeof detail === 'string' && detail.trim() ? detail : 'Failed to load products'
+        )
+        setIsProductsLoading(false)
+      })
+  }, [])
 
   const loadProductsRef = useRef(loadProducts)
   loadProductsRef.current = loadProducts
@@ -720,6 +771,8 @@ export default function Orders() {
       {/* Create New Order */}
       <OrderCreator
         products={products}
+        isProductsLoading={isProductsLoading}
+        productsError={productsError}
         onOrderCreated={handleOrderCreated}
         onSubmitOrder={submitOrder}
       />
@@ -736,7 +789,17 @@ export default function Orders() {
           onClearFilters={handleClearFilters}
         />
 
-        <OrdersTable orders={orders} onSelect={handleSelectOrder} onCancel={cancelOrder} />
+        {isOrdersLoading && (
+          <div role="status" aria-live="polite" className="text-sm text-gray-700">
+            Loading orders...
+          </div>
+        )}
+
+        {!isOrdersLoading && ordersError && <FormErrorBanner message={ordersError} />}
+
+        {!ordersError && (!isOrdersLoading || orders.length > 0) && (
+          <OrdersTable orders={orders} onSelect={handleSelectOrder} onCancel={cancelOrder} />
+        )}
 
         <OrdersPagination
           page={page}

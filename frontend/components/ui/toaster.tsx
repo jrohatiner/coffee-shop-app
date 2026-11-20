@@ -56,10 +56,10 @@ const ToastCard = ({ item, onDismiss, onPause, onResume }: ToastCardProps) => {
       onMouseLeave={() => onResume(item.id, 'hover')}
       onFocus={() => onPause(item.id, 'focus')}
       onBlur={handleBlur}
-      className={`pointer-events-auto flex items-start justify-between gap-3 rounded-md border border-l-4 p-4 shadow-lg transition-opacity ${
+      className={`pointer-events-auto flex items-start justify-between gap-3 rounded-md border border-control border-l-4 p-4 shadow-lg transition-opacity ${
         isDestructive
-          ? 'border-red-700 bg-red-50 text-red-900'
-          : 'border-slate-700 border-l-emerald-700 bg-white text-slate-900'
+          ? 'border-l-red-700 bg-red-50 text-red-900'
+          : 'border-l-emerald-700 bg-white text-slate-900'
       }`}
     >
       <div className="flex items-start gap-2.5 min-w-0">
@@ -82,10 +82,10 @@ const ToastCard = ({ item, onDismiss, onPause, onResume }: ToastCardProps) => {
         type="button"
         aria-label={`Dismiss ${item.title} notification`}
         onClick={() => onDismiss(item.id)}
-        className={`shrink-0 px-2 py-1 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+        className={`shrink-0 border-control px-2 py-1 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
           isDestructive
-            ? 'border-red-700 bg-white text-red-900 hover:bg-red-100 focus-visible:outline-red-800'
-            : 'border-slate-600 bg-white text-slate-900 hover:bg-slate-100 focus-visible:outline-slate-900'
+            ? 'bg-white text-red-900 hover:bg-red-100 focus-visible:outline-red-800'
+            : 'bg-white text-slate-900 hover:bg-slate-100 focus-visible:outline-slate-900'
         }`}
       >
         <span aria-hidden="true">✕</span>
