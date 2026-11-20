@@ -13,9 +13,7 @@ router = APIRouter()
 
 
 def _to_product_out(product: models.Product) -> schemas.ProductOut:
-    if hasattr(schemas.ProductOut, "model_validate"):
-        return schemas.ProductOut.model_validate(product, from_attributes=True)
-    return schemas.ProductOut.from_orm(product)
+    return schemas.ProductOut.model_validate(product)
 
 
 def _serialize_stock_delta(
@@ -27,12 +25,6 @@ def _serialize_stock_delta(
     )
 
 
-def _dump_product_create(product_in: schemas.ProductCreate) -> dict:
-    if hasattr(product_in, "model_dump"):
-        return product_in.model_dump()
-    return product_in.dict()
-
-
 def _create_inventory_item_sync(
     product_in: schemas.ProductCreate,
     request: Request,
@@ -41,7 +33,7 @@ def _create_inventory_item_sync(
         if db.query(models.Product).filter(models.Product.name == product_in.name).first():
             raise HTTPException(400, "Product name already exists")
 
-        product = models.Product(**_dump_product_create(product_in))
+        product = models.Product(**product_in.model_dump())
         db.add(product)
         db.commit()
         db.refresh(product)

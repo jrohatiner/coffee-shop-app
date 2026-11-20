@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # ---------- Users ----------
 class UserBase(BaseModel):
@@ -14,8 +14,7 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: int
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ---------- Products ----------
 class ProductBase(BaseModel):
@@ -28,9 +27,7 @@ class ProductCreate(ProductBase):
 
 class ProductOut(ProductBase):
     id: int
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StockDeltaOut(BaseModel):
@@ -59,9 +56,7 @@ class OrderCreate(BaseModel):
 class OrderItemOut(OrderItemBase):
     id: int
     product: ProductOut
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderBase(BaseModel):
     status: Optional[str] = "pending"
@@ -70,18 +65,14 @@ class OrderSummaryOut(BaseModel):
     id: int
     status: Optional[str] = "pending"
     created_at: datetime
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderOut(OrderBase):
     id: int
     user_id: Optional[int] = None
     created_at: datetime
     items: List[OrderItemOut]
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ---------- Reports ----------
 class SalesReportOut(BaseModel):
@@ -89,8 +80,7 @@ class SalesReportOut(BaseModel):
     report_type: str
     total_sales: float
     created_at: datetime
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ---------- Auth ----------
 class Token(BaseModel):

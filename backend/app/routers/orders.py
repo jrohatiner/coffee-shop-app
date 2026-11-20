@@ -56,23 +56,14 @@ def _get_order_with_details(db: Session, order_id: int) -> Optional[models.Order
 
 def _serialize_order(order: models.Order) -> schemas.OrderOut:
     if all(it.product is not None for it in order.items):
-        if hasattr(schemas.OrderOut, "model_validate"):
-            return schemas.OrderOut.model_validate(order, from_attributes=True)
-        return schemas.OrderOut.from_orm(order)
+        return schemas.OrderOut.model_validate(order)
 
     items_out = []
     for it in order.items:
         if it.product is not None:
-            item_out = (
-                schemas.OrderItemOut.model_validate(it, from_attributes=True)
-                if hasattr(schemas.OrderItemOut, "model_validate")
-                else schemas.OrderItemOut.from_orm(it)
-            )
+            item_out = schemas.OrderItemOut.model_validate(it)
         else:
-            item_construct = getattr(
-                schemas.OrderItemOut, "model_construct", schemas.OrderItemOut.construct
-            )
-            item_out = item_construct(
+            item_out = schemas.OrderItemOut.model_construct(
                 id=it.id,
                 product_id=it.product_id,
                 quantity=it.quantity,
@@ -80,10 +71,7 @@ def _serialize_order(order: models.Order) -> schemas.OrderOut:
             )
         items_out.append(item_out)
 
-    order_construct = getattr(
-        schemas.OrderOut, "model_construct", schemas.OrderOut.construct
-    )
-    return order_construct(
+    return schemas.OrderOut.model_construct(
         id=order.id,
         user_id=order.user_id,
         status=order.status,
