@@ -68,12 +68,12 @@ def _get_order_with_details(db: Session, order_id: int) -> models.Order | None:
 
 def _serialize_order(order: models.Order) -> schemas.OrderOut:
     if all(it.product is not None for it in order.items):
-        return schemas.OrderOut.model_validate(order, from_attributes=True)
+        return schemas.OrderOut.model_validate(order)
 
     items_out: list[schemas.OrderItemOut] = []
     for it in order.items:
         if it.product is not None:
-            item_out = schemas.OrderItemOut.model_validate(it, from_attributes=True)
+            item_out = schemas.OrderItemOut.model_validate(it)
         else:
             item_out = schemas.OrderItemOut.model_construct(
                 id=it.id,

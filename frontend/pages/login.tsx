@@ -33,6 +33,11 @@ export default function Login() {
     } catch {
       const missingUsername = !username.trim()
       const missingPassword = !password.trim()
+      toast({
+        title: 'Login failed',
+        description: 'Invalid credentials',
+        variant: 'destructive',
+      })
       if (missingUsername || missingPassword) {
         setErrors({
           username: missingUsername ? 'Username is required.' : undefined,
@@ -44,11 +49,6 @@ export default function Login() {
       setFormError(
         'Login failed: Invalid credentials. Check your username and password and try again.'
       )
-      toast({
-        title: 'Login failed',
-        description: 'Invalid credentials',
-        variant: 'destructive',
-      })
     }
   }
 
