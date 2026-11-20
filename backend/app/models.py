@@ -2,14 +2,45 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    TypeDecorator,
+)
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base as Base
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(UTC)
+
+
+class _UTCDateTime(TypeDecorator[datetime]):
+    """Persist datetimes as UTC in DateTime columns and load them as UTC-aware."""
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(
+        self, value: datetime | None, dialect: Dialect
+    ) -> datetime | None:
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(UTC).replace(tzinfo=None)
+        return value
+
+    def process_result_value(
+        self, value: datetime | None, dialect: Dialect
+    ) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 class User(Base):
@@ -39,7 +70,9 @@ class Order(Base):
         Integer, ForeignKey("users.id"), index=True, nullable=True
     )
     status: Mapped[str] = mapped_column(String, default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        _UTCDateTime, default=_utc_now, index=True
+    )
     user: Mapped[User | None] = relationship("User")
     items: Mapped[list[OrderItem]] = relationship(
         "OrderItem", back_populates="order", cascade="all, delete-orphan"
@@ -64,8 +97,7 @@ class SalesReport(Base):
     __table_args__ = (
         Index("ix_sales_reports_report_type_created_at", "report_type", "created_at"),
     )
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     report_type: Mapped[str] = mapped_column(String)  # daily/weekly/monthly
     total_sales: Mapped[float] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    created_at: Mapped[datetime] = mapped_column(_UTCDateTime, default=_utc_now)
