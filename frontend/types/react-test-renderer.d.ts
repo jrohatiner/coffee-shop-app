@@ -37,6 +37,11 @@ declare module 'react-test-renderer' {
 
   export function act(callback: () => void | Promise<void>): Promise<void>
 
+  namespace TestRenderer {
+    type ReactTestRenderer = import('react-test-renderer').ReactTestRenderer
+    type ReactTestInstance = import('react-test-renderer').ReactTestInstance
+  }
+
   const TestRenderer: {
     create: typeof create
     act: typeof act
