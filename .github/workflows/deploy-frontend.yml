@@ -34,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Validate Firebase Hosting config and .firebaserc
         working-directory: frontend
@@ -75,14 +75,18 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
+        run: |
+          npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund || {
+            echo "::error::npm install failed in frontend/" >&2
+            exit 1
+          }
 
       - name: Run TypeScript typecheck and unit tests
         working-directory: frontend
         run: |
-          npx tsc --noEmit
-          npm run test:unit
-          node --test __tests__/orderState.test.mjs
+          npx tsc --noEmit || { echo "::error::tsc --noEmit failed" >&2; exit 1; }
+          npm run test:unit || { echo "::error::npm run test:unit failed" >&2; exit 1; }
+          node --test __tests__/orderState.test.mjs || { echo "::error::orderState.test.mjs failed" >&2; exit 1; }
 
       - name: Build static export, audit bundle URLs, and generate SHA-256 manifest
         working-directory: frontend
@@ -195,7 +199,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install frontend dependencies
         working-directory: frontend

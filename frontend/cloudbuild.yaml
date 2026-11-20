@@ -1,5 +1,5 @@
 steps:
-  - name: 'node:20'
+  - name: 'node:22'
     dir: 'frontend'
     entrypoint: 'bash'
     env:
