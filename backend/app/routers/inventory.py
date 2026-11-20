@@ -16,7 +16,7 @@ CurrentUser = Annotated[models.User, Depends(auth.get_current_user)]
 
 
 def _to_product_out(product: models.Product) -> schemas.ProductOut:
-    return schemas.ProductOut.model_validate(product, from_attributes=True)
+    return schemas.ProductOut.model_validate(product)
 
 
 def _serialize_stock_delta(
@@ -27,10 +27,6 @@ def _serialize_stock_delta(
         schemas.StockDeltaOut(updated=updated, deleted_ids=deleted_ids)
     )
     return encoded
-
-
-def _dump_product_create(product_in: schemas.ProductCreate) -> dict[str, Any]:
-    return product_in.model_dump()
 
 
 def _create_inventory_item_sync(
@@ -46,7 +42,7 @@ def _create_inventory_item_sync(
         if existing:
             raise HTTPException(400, "Product name already exists")
 
-        product = models.Product(**_dump_product_create(product_in))
+        product = models.Product(**product_in.model_dump())
         db.add(product)
         db.commit()
         db.refresh(product)
