@@ -5,7 +5,6 @@ import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
 import Button from '../components/ui/Button'
-import FormErrorBanner from '../components/ui/FormErrorBanner'
 import {
   Table,
   TableHeader,
@@ -381,10 +380,6 @@ export default function Orders() {
   const [orders, setOrders] = useState<OrderSummary[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
-  const [cart, setCart] = useState<Record<number, number>>({}) // productId -> qty
-  const [status, setStatus] = useState<'pending'|'in_progress'|'completed'|'cancelled'>('pending')
-  const [orderError, setOrderError] = useState<string | null>(null)
-  const [orderError, setOrderError] = useState('')
 
   const [page, setPage] = useState<number>(1)
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
@@ -570,55 +565,6 @@ export default function Orders() {
           ;(expiry as any)?.unref?.()
           pendingLocalCreatesRef.current[createIdx] = expiry
         }
-  if(!user) return null
-
-  const selected = selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null
-
-  const setQty = (pid:number, qty:number) => {
-    setCart(prev => {
-      const next = { ...prev }
-      if(qty <= 0) delete next[pid]; else next[pid] = qty
-      if(Object.keys(next).length > 0) setOrderError('')
-      return next
-    })
-  }
-
-  const createOrder = async () => {
-    setOrderError(null)
-    const items = Object.entries(cart).map(([product_id, quantity])=>({ product_id: Number(product_id), quantity: Number(quantity) }))
-    if(items.length === 0){
-      setOrderError('Add at least one item: enter a quantity greater than 0 for at least one product before creating an order.')
-      setOrderError('Add at least one item with a quantity greater than 0 before submitting an order.')
-      toast({title:'Add at least one item', variant:'destructive'})
-      return
-    }
-
-    const createEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
-    clearTimeout(createEchoToken)
-    pendingLocalCreatesRef.current.push(createEchoToken)
-
-    const stockEchoToken = setTimeout(() => {}, LOCAL_SOCKET_ECHO_TTL_MS)
-    clearTimeout(stockEchoToken)
-    pendingLocalStockRef.current.push(stockEchoToken)
-
-    try{
-      await api.post('/orders', { status, items })
-      setOrderError(null)
-      setOrderError('')
-      const res = await api.post('/orders', { status, items })
-      applyCreatedOrder(res.data)
-      toast({title:'Order created'})
-      setCart({})
-      setStatus('pending')
-
-      const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
-      if (createIdx !== -1) {
-        const expiry = setTimeout(() => {
-          const idx = pendingLocalCreatesRef.current.indexOf(expiry)
-          if (idx !== -1) pendingLocalCreatesRef.current.splice(idx, 1)
-        }, LOCAL_SOCKET_ECHO_TTL_MS)
-        pendingLocalCreatesRef.current[createIdx] = expiry
-      }
 
         const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
         if (stockIdx !== -1) {
@@ -640,23 +586,6 @@ export default function Orders() {
     []
   )
 
-  const handleOrderCreated = useCallback(
-    () => Promise.all([fetchOrdersRef.current(), loadProductsRef.current()]),
-    []
-  )
-      await loadProducts()
-    }catch(e:any){
-      const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
-      if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
-      const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
-      if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
-      const detail = e?.response?.data?.detail ?? 'Failed to create order'
-      setOrderError(detail)
-      toast({title:'Error', description: detail, variant:'destructive'})
-      setOrderError(typeof detail === 'string' ? detail : 'Failed to create order')
-      toast({title:'Error', description: e?.response?.data?.detail ?? 'Failed to create order', variant:'destructive'})
-    }
-  }
   const handleOrderCreated = useCallback(() => loadProductsRef.current(), [])
 
   const cancelOrder = useCallback(async (id: number) => {
@@ -786,228 +715,6 @@ export default function Orders() {
       </section>
 
       {selected && <OrderDetailModal order={selected} onClose={handleCloseModal} />}
-      <section className="border rounded p-4 space-y-3 max-w-3xl">
-        <h2 className="font-semibold text-lg">Create New Order</h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <div className="font-medium">Pick Products</div>
-            <div className="space-y-2 max-h-80 overflow-auto pr-2">
-              {products.map(p=>(
-                <div key={p.id} className="flex items-center justify-between border rounded p-2">
-                  <div className="flex flex-col">
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-sm text-gray-700">${p.price.toFixed(2)} · stock {p.stock}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label htmlFor={`order-qty-${p.id}`} className="text-sm">
-                      Qty<span className="sr-only"> for {p.name}</span>
-                    </label>
-                    <Input
-                      id={`order-qty-${p.id}`}
-                      type="number"
-                      min={0}
-                      value={cart[p.id] ?? 0}
-                      aria-invalid={orderError ? true : undefined}
-                      aria-describedby={orderError ? 'orders-form-error' : undefined}
-                    <label htmlFor={`order-qty-${p.id}`} className="text-sm font-medium text-gray-800">
-                      Qty
-                    </label>
-                    <Input
-                      id={`order-qty-${p.id}`}
-                      aria-label={`Quantity for ${p.name}`}
-                      aria-invalid={orderError ? 'true' : undefined}
-                      aria-describedby={orderError ? 'order-cart-error' : undefined}
-                      type="number"
-                      min={0}
-                      value={cart[p.id] ?? 0}
-                      onChange={e=>setQty(p.id, parseInt((e.target as HTMLInputElement).value || '0'))}
-                      className="w-20"
-                    />
-                  </div>
-                </div>
-                <ProductOrderRow
-                  key={p.id}
-                  product={p}
-                  qty={cart[p.id] ?? 0}
-                  onQtyChange={qty => setQty(p.id, qty)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <label htmlFor="order-status" className="font-medium block">Order Status</label>
-            <select
-              id="order-status"
-              className="border border-gray-300 bg-white text-gray-900 rounded px-3 py-2"
-            <select id="order-status" className="border rounded px-3 py-2 bg-white text-gray-900" value={status} onChange={e=>setStatus(e.target.value as any)}>
-            <Select
-              label="Order Status"
-              labelClassName="text-base font-medium text-gray-900"
-              value={status}
-              onChange={e=>setStatus(e.target.value as any)}
-            >
-              <option value="pending">pending</option>
-              <option value="in_progress">in_progress</option>
-              <option value="completed">completed</option>
-              <option value="cancelled">cancelled</option>
-            </Select>
-
-            <div className="border rounded p-3">
-              <div className="font-medium mb-2">Cart</div>
-              <ul className="space-y-1">
-                {Object.entries(cart).map(([pid, qty])=>{
-                  const p = productById.get(Number(pid))
-                  if(!p) return null
-                  return <li key={pid} className="flex justify-between"><span>{p.name}</span><span>× {qty}</span></li>
-                })}
-                {Object.keys(cart).length===0 && <li className="text-gray-600 text-sm">No items added</li>}
-              </ul>
-            </div>
-
-            <FormErrorBanner id="orders-form-error" message={orderError} />
-            {orderError && (
-              <p
-                id="order-cart-error"
-                className="flex items-start gap-1.5 text-sm font-medium text-red-800"
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="mt-0.5 h-4 w-4 shrink-0 text-red-800"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span>{orderError}</span>
-              </p>
-            )}
-
-            <Button onClick={createOrder}>Create Order</Button>
-          </div>
-        </div>
-      </section>
-
-      {/* Orders table & pagination */}
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <Select
-            id="orders-status-filter"
-            label="Status Filter"
-            wrapperClassName="flex flex-col gap-1"
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value)
-              setPage(1)
-            }}
-          >
-            <option value="">All statuses</option>
-            <option value="pending">pending</option>
-            <option value="in_progress">in_progress</option>
-            <option value="completed">completed</option>
-            <option value="cancelled">cancelled</option>
-          </Select>
-
-          <Input
-            id="orders-date-filter"
-            label="Date Filter"
-            wrapperClassName="flex flex-col gap-1"
-            type="date"
-            className="w-44"
-            value={dateFilter}
-            onChange={(e) => {
-              setDateFilter((e.target as HTMLInputElement).value)
-              setPage(1)
-            }}
-          />
-
-          <Select
-            id="orders-page-size"
-            label="Page Size"
-            wrapperClassName="flex flex-col gap-1"
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value))
-              setPage(1)
-            }}
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>{size} per page</option>
-            ))}
-          </Select>
-
-          {(statusFilter || dateFilter) && (
-            <Button
-              onClick={() => {
-                setStatusFilter('')
-                setDateFilter('')
-                setPage(1)
-              }}
-            >
-              Clear Filters
-            </Button>
-          )}
-        </div>
-
-        <Table caption="Orders" hideCaption>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {orderRows.map(({ order: o, formattedCreatedAt })=>(
-              <TableRow key={o.id}>
-                <TableRowHeader>{o.id}</TableRowHeader>
-                <TableCell>{o.status}</TableCell>
-                <TableCell>{formattedCreatedAt}</TableCell>
-                <TableCell className="flex gap-2">
-                  <Button contextLabel={`order #${o.id}`} onClick={()=>setSelectedId(o.id)}>View</Button>
-                  {(o.status !== 'cancelled' && o.status !== 'completed') && (
-                    <Button contextLabel={`order #${o.id}`} onClick={()=>cancelOrder(o.id)}>Cancel</Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {orders.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="p-4 text-center text-gray-500">No orders found.</TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-
-        <div className="flex items-center justify-between pt-2">
-          <div className="text-sm text-gray-600">
-            Page {page} · Showing {orders.length} {orders.length === 1 ? 'order' : 'orders'}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              disabled={page <= 1}
-              className="disabled:opacity-50 disabled:pointer-events-none"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            <Button
-              disabled={!hasMore}
-              className="disabled:opacity-50 disabled:pointer-events-none"
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {selected && <OrderDetailModal order={selected} onClose={()=>setSelectedId(null)} />}
     </div>
   )
 }

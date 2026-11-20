@@ -341,9 +341,14 @@ def test_explain_query_plan_uses_indexes_across_all_five_routers(db_env):
                 .limit(1)
             ),
             "reports_by_type": (
-                db.query(models.SalesReport).filter(
-                    models.SalesReport.report_type == "daily"
+                db.query(models.SalesReport)
+                .filter(models.SalesReport.report_type == "daily")
+                .order_by(
+                    models.SalesReport.created_at.desc(),
+                    models.SalesReport.id.desc(),
                 )
+                .offset(0)
+                .limit(21)
             ),
             "users_fk_orders_by_user_id": (
                 db.query(models.Order.id).filter(models.Order.user_id == 1)
@@ -458,6 +463,7 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
     ]:
         rep = client.get(f"/reports/{rtype}", headers=headers)
         assert rep.status_code == 200
+        assert rep.headers.get("X-Has-More") == "false"
         items = rep.json()
         assert len(items) == 1
         assert items[0]["report_type"] == rtype
@@ -485,3 +491,179 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
 
     with pytest.raises(IntegrityError):
         client.delete(f"/users/{staff_with_orders_id}", headers=headers)
+
+
+def test_reports_pagination_ordering_has_more_and_exact_multiples(db_env):
+    engine, SessionLocal, client = db_env
+    db = SessionLocal()
+    try:
+        mgr = models.User(
+            username="reports_mgr",
+            hashed_password=auth.get_password_hash("pw"),
+            is_manager=True,
+        )
+        db.add(mgr)
+        db.commit()
+    finally:
+        db.close()
+
+    headers = _auth_headers("reports_mgr")
+
+    # Empty tables return [] with X-Has-More: false
+    for rtype in ("daily", "weekly", "monthly"):
+        empty_resp = client.get(f"/reports/{rtype}", headers=headers)
+        assert empty_resp.status_code == 200
+        assert empty_resp.json() == []
+        assert empty_resp.headers.get("X-Has-More") == "false"
+
+    # Seed 45 daily reports (with duplicate created_at timestamps to test id DESC tie-breaking),
+    # 20 weekly reports (exact multiple of default limit=20), and 5 monthly reports.
+    base_dt = datetime(2026, 1, 1, 12, 0, 0)
+    db = SessionLocal()
+    try:
+        expected_daily_ids = []
+        daily_records = []
+        for i in range(45):
+            # Pair indices (42, 43) share the exact same created_at timestamp
+            day_offset = 42 if i in (42, 43) else i
+            rec = models.SalesReport(
+                report_type="daily",
+                total_sales=round(100.0 + i, 2),
+                created_at=base_dt + timedelta(days=day_offset),
+            )
+            db.add(rec)
+            db.flush()
+            daily_records.append((rec.created_at, rec.id))
+
+        expected_daily_ids = [
+            rid
+            for _dt, rid in sorted(
+                daily_records, key=lambda pair: (pair[0], pair[1]), reverse=True
+            )
+        ]
+
+        for i in range(20):
+            db.add(
+                models.SalesReport(
+                    report_type="weekly",
+                    total_sales=round(500.0 + i * 10, 2),
+                    created_at=base_dt + timedelta(weeks=i),
+                )
+            )
+
+        for i in range(5):
+            db.add(
+                models.SalesReport(
+                    report_type="monthly",
+                    total_sales=round(2000.0 + i * 100, 2),
+                    created_at=base_dt + timedelta(days=30 * i),
+                )
+            )
+        db.commit()
+
+        # Verify EXPLAIN QUERY PLAN for paginated non-zero offset report queries across report types
+        with engine.connect() as conn:
+            for rtype in ("daily", "weekly", "monthly"):
+                q = (
+                    db.query(models.SalesReport)
+                    .filter(models.SalesReport.report_type == rtype)
+                    .order_by(
+                        models.SalesReport.created_at.desc(),
+                        models.SalesReport.id.desc(),
+                    )
+                    .offset(20)
+                    .limit(21)
+                )
+                compiled = q.statement.compile(
+                    dialect=sqlite.dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+                plan_rows = conn.execute(
+                    text(f"EXPLAIN QUERY PLAN {compiled}")
+                ).fetchall()
+                details = " | ".join(str(row[-1]) for row in plan_rows)
+                assert "ix_sales_reports_report_type_created_at" in details
+                assert "TEMP B-TREE" not in details
+    finally:
+        db.close()
+
+    # Daily page 1 (default limit=20, offset=0) -> 20 items, X-Has-More: true
+    p1 = client.get("/reports/daily", headers=headers)
+    assert p1.status_code == 200
+    assert p1.headers.get("X-Has-More") == "true"
+    p1_items = p1.json()
+    assert len(p1_items) == 20
+    assert [r["id"] for r in p1_items] == expected_daily_ids[:20]
+
+    # Verify identical created_at tie-break orders higher id first
+    tied_slice = [r for r in p1_items if r["created_at"].startswith("2026-02-12")]
+    assert len(tied_slice) == 2
+    assert tied_slice[0]["id"] > tied_slice[1]["id"]
+
+    # Daily page 2 (limit=20, offset=20) -> 20 items, X-Has-More: true
+    p2 = client.get("/reports/daily?limit=20&offset=20", headers=headers)
+    assert p2.status_code == 200
+    assert p2.headers.get("X-Has-More") == "true"
+    p2_items = p2.json()
+    assert len(p2_items) == 20
+    assert [r["id"] for r in p2_items] == expected_daily_ids[20:40]
+
+    # Daily page 3 (limit=20, offset=40) -> 5 items, X-Has-More: false
+    p3 = client.get("/reports/daily?limit=20&offset=40", headers=headers)
+    assert p3.status_code == 200
+    assert p3.headers.get("X-Has-More") == "false"
+    p3_items = p3.json()
+    assert len(p3_items) == 5
+    assert [r["id"] for r in p3_items] == expected_daily_ids[40:]
+
+    # Exact multiple of limit (20 weekly rows with default limit=20) -> X-Has-More: false
+    weekly_default = client.get("/reports/weekly", headers=headers)
+    assert weekly_default.status_code == 200
+    assert len(weekly_default.json()) == 20
+    assert weekly_default.headers.get("X-Has-More") == "false"
+
+    # Custom limit=5 across weekly rows
+    weekly_slice = client.get("/reports/weekly?limit=5&offset=0", headers=headers)
+    assert weekly_slice.status_code == 200
+    assert len(weekly_slice.json()) == 5
+    assert weekly_slice.headers.get("X-Has-More") == "true"
+
+    weekly_last = client.get("/reports/weekly?limit=5&offset=15", headers=headers)
+    assert weekly_last.status_code == 200
+    assert len(weekly_last.json()) == 5
+    assert weekly_last.headers.get("X-Has-More") == "false"
+
+    # Monthly with max limit=100
+    monthly_max = client.get("/reports/monthly?limit=100&offset=0", headers=headers)
+    assert monthly_max.status_code == 200
+    assert len(monthly_max.json()) == 5
+    assert monthly_max.headers.get("X-Has-More") == "false"
+
+
+def test_reports_pagination_bounds_return_422(db_env):
+    _, SessionLocal, client = db_env
+    db = SessionLocal()
+    try:
+        mgr = models.User(
+            username="bounds_mgr",
+            hashed_password=auth.get_password_hash("pw"),
+            is_manager=True,
+        )
+        db.add(mgr)
+        db.commit()
+    finally:
+        db.close()
+
+    headers = _auth_headers("bounds_mgr")
+
+    for rtype in ("daily", "weekly", "monthly"):
+        for invalid_query in (
+            "limit=0",
+            "limit=-1",
+            "limit=101",
+            "offset=-1",
+        ):
+            resp = client.get(f"/reports/{rtype}?{invalid_query}", headers=headers)
+            assert resp.status_code == 422, (
+                f"Expected 422 for /reports/{rtype}?{invalid_query}, got {resp.status_code}"
+            )
