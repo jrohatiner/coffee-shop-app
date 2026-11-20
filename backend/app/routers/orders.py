@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import false
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -313,6 +314,11 @@ def list_orders(
     current_user=Depends(auth.get_current_user),
 ):
     q = db.query(models.Order.id, models.Order.status, models.Order.created_at)
+    if not current_user.is_manager:
+        if current_user.id is None:
+            q = q.filter(false())
+        else:
+            q = q.filter(models.Order.user_id == current_user.id)
     if status:
         q = q.filter(models.Order.status == status)
     if date_filter is not None:

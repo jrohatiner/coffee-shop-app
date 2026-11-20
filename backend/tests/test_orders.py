@@ -1150,3 +1150,137 @@ def test_unauthenticated_order_update_returns_401(client, seeded_data):
     order_id = seeded_data["order"].id
     resp = client.put(f"/orders/{order_id}", params={"status": "completed"})
     assert resp.status_code == 401
+
+
+def test_list_orders_non_manager_receives_only_own_orders(client, db_session):
+    staff_a = _create_user(db_session, "staff_alice", is_manager=False)
+    staff_b = _create_user(db_session, "staff_bob", is_manager=False)
+    manager = _create_user(db_session, "manager_carol", is_manager=True)
+    product = _create_product(db_session, stock=100)
+
+    order_a1 = _create_order(db_session, staff_a, product, quantity=1, status="pending")
+    order_b1 = _create_order(db_session, staff_b, product, quantity=2, status="completed")
+    order_mgr = _create_order(db_session, manager, product, quantity=1, status="in_progress")
+    order_a2 = _create_order(db_session, staff_a, product, quantity=3, status="completed")
+
+    orphan_order = models.Order(user_id=None, status="pending")
+    db_session.add(orphan_order)
+    db_session.commit()
+    db_session.refresh(orphan_order)
+
+    # Non-manager staff_a sees only their own orders (both /orders/ and /orders)
+    for path in ("/orders/", "/orders"):
+        resp_a = client.get(path, headers=_auth_headers(staff_a))
+        assert resp_a.status_code == 200
+        ids_a = [o["id"] for o in resp_a.json()]
+        assert set(ids_a) == {order_a1.id, order_a2.id}
+        assert order_b1.id not in ids_a
+        assert order_mgr.id not in ids_a
+        assert orphan_order.id not in ids_a
+
+    # Non-manager staff_b sees only their own order
+    resp_b = client.get("/orders/", headers=_auth_headers(staff_b))
+    assert resp_b.status_code == 200
+    assert [o["id"] for o in resp_b.json()] == [order_b1.id]
+
+    # Manager retains visibility across all orders, including orphaned ones
+    resp_mgr = client.get("/orders/", headers=_auth_headers(manager))
+    assert resp_mgr.status_code == 200
+    ids_mgr = {o["id"] for o in resp_mgr.json()}
+    assert ids_mgr == {
+        order_a1.id,
+        order_a2.id,
+        order_b1.id,
+        order_mgr.id,
+        orphan_order.id,
+    }
+
+
+def test_list_orders_zero_orders_account_returns_empty_array(client, db_session):
+    empty_user = _create_user(db_session, "new_customer", is_manager=False)
+    other_user = _create_user(db_session, "active_customer", is_manager=False)
+    manager = _create_user(db_session, "active_manager", is_manager=True)
+    product = _create_product(db_session, stock=50)
+
+    _create_order(db_session, other_user, product, quantity=1, status="pending")
+    _create_order(db_session, manager, product, quantity=2, status="completed")
+
+    resp = client.get("/orders/", headers=_auth_headers(empty_user))
+    assert resp.status_code == 200
+    assert resp.json() == []
+    assert resp.headers.get("x-has-more") == "false"
+
+
+def test_list_orders_preserves_status_date_and_pagination_for_non_managers_and_managers(
+    client, db_session
+):
+    staff_a = _create_user(db_session, "filter_staff_a", is_manager=False)
+    staff_b = _create_user(db_session, "filter_staff_b", is_manager=False)
+    manager = _create_user(db_session, "filter_manager", is_manager=True)
+
+    day_1 = datetime(2026, 11, 17, 10, 0, 0)
+    day_2 = datetime(2026, 11, 18, 15, 0, 0)
+
+    records = [
+        ("a_d1_pending", staff_a.id, "pending", day_1),
+        ("a_d2_pending", staff_a.id, "pending", day_2),
+        ("a_d2_completed", staff_a.id, "completed", day_2 + timedelta(minutes=5)),
+        ("b_d2_pending", staff_b.id, "pending", day_2 + timedelta(minutes=10)),
+        ("mgr_d2_pending", manager.id, "pending", day_2 + timedelta(minutes=15)),
+    ]
+    by_label = {}
+    for label, uid, st, ts in records:
+        order = models.Order(user_id=uid, status=st, created_at=ts)
+        db_session.add(order)
+        db_session.flush()
+        by_label[label] = order.id
+    db_session.commit()
+
+    # Non-manager filtering by status only sees own matching orders
+    resp_a_pending = client.get(
+        "/orders/",
+        params={"status": "pending"},
+        headers=_auth_headers(staff_a),
+    )
+    assert resp_a_pending.status_code == 200
+    assert [o["id"] for o in resp_a_pending.json()] == [
+        by_label["a_d2_pending"],
+        by_label["a_d1_pending"],
+    ]
+    assert resp_a_pending.headers.get("x-has-more") == "false"
+
+    # Non-manager filtering by date_filter only sees own orders on that date
+    resp_a_day2 = client.get(
+        "/orders/",
+        params={"date_filter": "2026-11-18"},
+        headers=_auth_headers(staff_a),
+    )
+    assert resp_a_day2.status_code == 200
+    assert [o["id"] for o in resp_a_day2.json()] == [
+        by_label["a_d2_completed"],
+        by_label["a_d2_pending"],
+    ]
+
+    # Non-manager combined status + date_filter + limit=1 does not count other users' orders in X-Has-More
+    resp_a_combo = client.get(
+        "/orders/",
+        params={"status": "pending", "date_filter": "2026-11-18", "limit": 1},
+        headers=_auth_headers(staff_a),
+    )
+    assert resp_a_combo.status_code == 200
+    assert [o["id"] for o in resp_a_combo.json()] == [by_label["a_d2_pending"]]
+    assert resp_a_combo.headers.get("x-has-more") == "false"
+
+    # Manager combined status + date_filter sees all users' matching orders and accurate X-Has-More
+    resp_mgr_combo = client.get(
+        "/orders/",
+        params={"status": "pending", "date_filter": "2026-11-18", "limit": 2},
+        headers=_auth_headers(manager),
+    )
+    assert resp_mgr_combo.status_code == 200
+    assert [o["id"] for o in resp_mgr_combo.json()] == [
+        by_label["mgr_d2_pending"],
+        by_label["b_d2_pending"],
+    ]
+    assert resp_mgr_combo.headers.get("x-has-more") == "true"
+
