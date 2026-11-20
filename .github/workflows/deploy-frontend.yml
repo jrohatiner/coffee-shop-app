@@ -1,0 +1,266 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Verify Static Export & Firebase Config
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate Firebase Hosting config and .firebaserc
+        working-directory: frontend
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const assert = require("node:assert/strict");
+
+            const firebaseConfig = JSON.parse(fs.readFileSync("firebase.json", "utf8"));
+            assert.equal(firebaseConfig.hosting?.public, "out", "hosting.public must be out");
+            assert.equal(firebaseConfig.hosting?.cleanUrls, true, "hosting.cleanUrls must be true");
+
+            const rewrites = firebaseConfig.hosting?.rewrites ?? [];
+            const expectedSources = [
+              "/api/**",
+              "/auth/**",
+              "/dashboard/**",
+              "/orders/**",
+              "/inventory/**",
+              "/reports/**",
+              "/users/**",
+              "/ws/**",
+            ];
+            for (const source of expectedSources) {
+              const rule = rewrites.find((entry) => entry.source === source);
+              assert.ok(rule, `Missing rewrite for ${source}`);
+              assert.equal(rule.run?.serviceId, "coffee-backend", `Rewrite ${source} must target coffee-backend`);
+              assert.equal(rule.run?.region, "us-central1", `Rewrite ${source} must target us-central1`);
+            }
+
+            const firebasercRaw = fs.readFileSync(".firebaserc", "utf8");
+            assert.ok(
+              !firebasercRaw.includes("YOUR_FIREBASE_PROJECT_ID"),
+              ".firebaserc must not contain YOUR_FIREBASE_PROJECT_ID placeholder"
+            );
+            JSON.parse(firebasercRaw);
+          '
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
+
+      - name: Run TypeScript typecheck and unit tests
+        working-directory: frontend
+        run: |
+          npx tsc --noEmit
+          npm run test:unit
+          node --test __tests__/orderState.test.mjs
+
+      - name: Build static export, audit bundle URLs, and generate SHA-256 manifest
+        working-directory: frontend
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CONFIGURED_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_SOCKET_URL: ${{ vars.NEXT_PUBLIC_SOCKET_URL || secrets.NEXT_PUBLIC_SOCKET_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" != "pull_request" ] && [ -z "${CONFIGURED_API_URL:-}" ]; then
+            echo "::error::NEXT_PUBLIC_API_URL must be configured for release builds." >&2
+            exit 1
+          fi
+
+          export NEXT_PUBLIC_API_URL="${CONFIGURED_API_URL:-/}"
+
+          if printf '%s\n%s\n' "$NEXT_PUBLIC_API_URL" "${NEXT_PUBLIC_SOCKET_URL:-}" | grep -Fq 'http://localhost:8000'; then
+            echo "::error::Frontend build URLs must not reference http://localhost:8000." >&2
+            exit 1
+          fi
+
+          npm run build
+
+          expected_pages=(
+            "index.html"
+            "login.html"
+            "dashboard.html"
+            "orders.html"
+            "inventory.html"
+            "reports.html"
+            "users.html"
+            "404.html"
+          )
+          for page in "${expected_pages[@]}"; do
+            if [ ! -f "out/$page" ]; then
+              echo "::error::Missing expected static page out/$page" >&2
+              exit 1
+            fi
+          done
+
+          html_count="$(find out -maxdepth 1 -name '*.html' | wc -l | tr -d ' ')"
+          if [ "$html_count" -ne 8 ]; then
+            echo "::error::Expected 8 HTML files in frontend/out, found $html_count" >&2
+            exit 1
+          fi
+
+          if grep -rnF 'http://localhost:8000' out/; then
+            echo "::error::Found forbidden http://localhost:8000 reference in frontend/out" >&2
+            exit 1
+          fi
+
+          (
+            cd out
+            find . -type f ! -name 'manifest.sha256' -print0 \
+              | LC_ALL=C sort -z \
+              | xargs -0 sha256sum > manifest.sha256
+            sha256sum -c manifest.sha256
+          )
+
+      - name: Upload static manifest artifact (PR verification)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static-manifest-${{ github.sha }}
+          path: frontend/out/manifest.sha256
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy Static Export to Firebase Hosting
+    needs: verify
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Validate required release environment variables
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_SOCKET_URL: ${{ vars.NEXT_PUBLIC_SOCKET_URL || secrets.NEXT_PUBLIC_SOCKET_URL }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER || secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT || secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NEXT_PUBLIC_API_URL:-}" ]; then
+            echo "::error::NEXT_PUBLIC_API_URL must be set for release builds." >&2
+            exit 1
+          fi
+          if printf '%s\n%s\n' "$NEXT_PUBLIC_API_URL" "${NEXT_PUBLIC_SOCKET_URL:-}" | grep -Fq 'http://localhost:8000'; then
+            echo "::error::Release URLs must not reference http://localhost:8000." >&2
+            exit 1
+          fi
+          if [ -z "${FIREBASE_PROJECT_ID:-}" ] || [ "$FIREBASE_PROJECT_ID" = "YOUR_FIREBASE_PROJECT_ID" ]; then
+            echo "::error::FIREBASE_PROJECT_ID must be set to a valid Firebase project ID." >&2
+            exit 1
+          fi
+          if [ -z "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" ] || [ -z "${GCP_SERVICE_ACCOUNT:-}" ]; then
+            echo "::error::GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT must be configured." >&2
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build static export, audit bundle URLs, and generate SHA-256 manifest
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_SOCKET_URL: ${{ vars.NEXT_PUBLIC_SOCKET_URL || secrets.NEXT_PUBLIC_SOCKET_URL }}
+        run: |
+          set -euo pipefail
+
+          npm run build
+
+          expected_pages=(
+            "index.html"
+            "login.html"
+            "dashboard.html"
+            "orders.html"
+            "inventory.html"
+            "reports.html"
+            "users.html"
+            "404.html"
+          )
+          for page in "${expected_pages[@]}"; do
+            if [ ! -f "out/$page" ]; then
+              echo "::error::Missing expected static page out/$page" >&2
+              exit 1
+            fi
+          done
+
+          if grep -rnF 'http://localhost:8000' out/; then
+            echo "::error::Found forbidden http://localhost:8000 reference in frontend/out" >&2
+            exit 1
+          fi
+
+          (
+            cd out
+            find . -type f ! -name 'manifest.sha256' -print0 \
+              | LC_ALL=C sort -z \
+              | xargs -0 sha256sum > manifest.sha256
+            sha256sum -c manifest.sha256
+          )
+
+      - name: Upload static manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static-manifest-${{ github.sha }}
+          path: frontend/out/manifest.sha256
+          if-no-files-found: error
+
+      - name: Attest static export manifest provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: frontend/out/manifest.sha256
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER || secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT || secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy static export to Firebase Hosting
+        working-directory: frontend
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
+        run: npx --yes firebase-tools deploy --only hosting --project "$FIREBASE_PROJECT_ID"

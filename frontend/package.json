@@ -5,7 +5,7 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start",
-    "export": "next export",
+    "export": "next build",
     "test:unit": "node scripts/run-tests.cjs && jest",
     "test:e2e": "playwright test",
     "test": "node scripts/run-tests.cjs && jest && playwright test"

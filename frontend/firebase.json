@@ -1,3 +1,69 @@
 {
-  "hosting": { "public": "out", "ignore": ["**/.*","**/node_modules/**"] }
+  "hosting": {
+    "public": "out",
+    "cleanUrls": true,
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/auth/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/dashboard/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/orders/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/inventory/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/reports/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/users/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/ws/**",
+        "run": {
+          "serviceId": "coffee-backend",
+          "region": "us-central1"
+        }
+      }
+    ]
+  }
 }
