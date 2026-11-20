@@ -1,16 +1,19 @@
+from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import false
+from sqlalchemy.engine import Row
+from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app import auth, database, models, schemas
 from app.database import get_db
-from app.websockets import sio
+from app.websockets import sio as sio
 
 router = APIRouter()
 
@@ -18,34 +21,43 @@ DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 ALLOWED_ORDER_STATUSES = {s.value for s in schemas.OrderStatus}
 
+DbSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[models.User, Depends(auth.get_current_user)]
 
-def _serialize_order_summary(order) -> dict:
+
+def _serialize_order_summary(
+    order: models.Order | schemas.OrderOut,
+) -> dict[str, Any]:
     summary = schemas.OrderSummaryOut(
         id=order.id,
         status=order.status,
         created_at=order.created_at,
     )
-    return jsonable_encoder(summary)
+    encoded: dict[str, Any] = jsonable_encoder(summary)
+    return encoded
 
 
-def _serialize_order_stock_delta(order_out: schemas.OrderOut) -> dict:
-    seen_ids = set()
-    updated: List[schemas.ProductOut] = []
+def _serialize_order_stock_delta(order_out: schemas.OrderOut) -> dict[str, Any]:
+    seen_ids: set[int] = set()
+    updated: list[schemas.ProductOut] = []
     for item in order_out.items:
         prod = getattr(item, "product", None)
         if prod is not None and prod.id not in seen_ids:
             seen_ids.add(prod.id)
             updated.append(prod)
-    return jsonable_encoder(schemas.StockDeltaOut(updated=updated, deleted_ids=[]))
+    encoded: dict[str, Any] = jsonable_encoder(
+        schemas.StockDeltaOut(updated=updated, deleted_ids=[])
+    )
+    return encoded
 
 
-def _orders_with_details_query(db: Session):
+def _orders_with_details_query(db: Session) -> SAQuery[models.Order]:
     return db.query(models.Order).options(
         joinedload(models.Order.items).joinedload(models.OrderItem.product)
     )
 
 
-def _get_order_with_details(db: Session, order_id: int) -> Optional[models.Order]:
+def _get_order_with_details(db: Session, order_id: int) -> models.Order | None:
     return (
         _orders_with_details_query(db)
         .populate_existing()
@@ -58,7 +70,7 @@ def _serialize_order(order: models.Order) -> schemas.OrderOut:
     if all(it.product is not None for it in order.items):
         return schemas.OrderOut.model_validate(order)
 
-    items_out = []
+    items_out: list[schemas.OrderItemOut] = []
     for it in order.items:
         if it.product is not None:
             item_out = schemas.OrderItemOut.model_validate(it)
@@ -81,13 +93,13 @@ def _serialize_order(order: models.Order) -> schemas.OrderOut:
 
 
 def _create_order_sync(
-    user_id: Optional[int],
+    user_id: int | None,
     order: schemas.OrderCreate,
     request: Request,
-) -> Tuple[schemas.OrderOut, dict, dict]:
+) -> tuple[schemas.OrderOut, dict[str, Any], dict[str, Any]]:
     with database.session_scope(request) as db:
         product_ids = sorted({item.product_id for item in order.items})
-        product_map: Dict[int, models.Product] = {}
+        product_map: dict[int, models.Product] = {}
         if product_ids:
             products = (
                 db.query(models.Product)
@@ -98,7 +110,7 @@ def _create_order_sync(
             )
             product_map = {prod.id: prod for prod in products}
 
-        requested_quantities: Dict[int, int] = {}
+        requested_quantities: dict[int, int] = {}
         for item in order.items:
             prod = product_map.get(item.product_id)
             if not prod:
@@ -114,13 +126,17 @@ def _create_order_sync(
             if prod.stock < total_quantity:
                 raise HTTPException(
                     400,
-                    f"Insufficient stock for {prod.name}. Available: {prod.stock}, requested: {total_quantity}",
+                    f"Insufficient stock for {prod.name}. "
+                    f"Available: {prod.stock}, requested: {total_quantity}",
                 )
 
         for product_id, total_quantity in requested_quantities.items():
             product_map[product_id].stock -= total_quantity
 
-        db_order = models.Order(user_id=user_id, status=order.status)
+        db_order = models.Order(
+            user_id=user_id,
+            status=order.status if order.status is not None else "pending",
+        )
         db_order.items = [
             models.OrderItem(
                 product_id=item.product_id,
@@ -141,10 +157,10 @@ def _create_order_sync(
 
 def _cancel_order_sync(
     order_id: int,
-    user_id: Optional[int],
+    user_id: int | None,
     is_manager: bool,
     request: Request,
-) -> Tuple[schemas.OrderOut, Optional[dict], Optional[dict], bool]:
+) -> tuple[schemas.OrderOut, dict[str, Any] | None, dict[str, Any] | None, bool]:
     with database.session_scope(request) as db:
         order = (
             db.query(models.Order)
@@ -162,7 +178,7 @@ def _cancel_order_sync(
             raise HTTPException(400, "Cannot cancel order in current status")
 
         product_ids = sorted({it.product_id for it in order.items})
-        product_map: Dict[int, models.Product] = {}
+        product_map: dict[int, models.Product] = {}
         if product_ids:
             product_query = (
                 db.query(models.Product)
@@ -180,7 +196,7 @@ def _cancel_order_sync(
         if order.status == "cancelled":
             return _serialize_order(order), None, None, False
 
-        restock_quantities: Dict[int, int] = {}
+        restock_quantities: dict[int, int] = {}
         for it in order.items:
             restock_quantities[it.product_id] = (
                 restock_quantities.get(it.product_id, 0) + it.quantity
@@ -209,8 +225,8 @@ def _cancel_order_sync(
 async def create_order(
     order: schemas.OrderCreate,
     request: Request,
-    current_user=Depends(auth.get_current_user),
-):
+    current_user: CurrentUser,
+) -> schemas.OrderOut:
     order_out, order_summary, stock_delta = await run_in_threadpool(
         _create_order_sync,
         current_user.id,
@@ -229,8 +245,8 @@ async def create_order(
 async def cancel_order(
     order_id: int,
     request: Request,
-    current_user=Depends(auth.get_current_user),
-):
+    current_user: CurrentUser,
+) -> schemas.OrderOut:
     order_out, cancelled_payload, stock_delta, did_cancel = await run_in_threadpool(
         _cancel_order_sync,
         order_id,
@@ -248,29 +264,34 @@ async def cancel_order(
 @router.get("/{order_id}", response_model=schemas.OrderOut)
 def get_order(
     order_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(auth.get_current_user),
-):
+    db: DbSession,
+    current_user: CurrentUser,
+) -> schemas.OrderOut:
     order = _orders_with_details_query(db).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(404, "Order not found")
     if order.user_id != current_user.id and not current_user.is_manager:
-        raise HTTPException(status_code=403, detail="Not authorized to access this order")
+        raise HTTPException(
+            status_code=403, detail="Not authorized to access this order"
+        )
     return _serialize_order(order)
+
 
 @router.put("/{order_id}", response_model=schemas.OrderOut)
 def update_order(
     order_id: int,
     status: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(auth.get_current_user),
-):
+    db: DbSession,
+    current_user: CurrentUser,
+) -> schemas.OrderOut:
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
     if not (current_user.is_manager or order.user_id == current_user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to update this order")
+        raise HTTPException(
+            status_code=403, detail="Not authorized to update this order"
+        )
 
     if status not in ALLOWED_ORDER_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid order status")
@@ -278,29 +299,35 @@ def update_order(
     order.status = status
     db.commit()
     updated_order = _get_order_with_details(db, order_id)
+    if updated_order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
     return _serialize_order(updated_order)
 
 
-@router.get("/", response_model=List[schemas.OrderSummaryOut])
-@router.get("", response_model=List[schemas.OrderSummaryOut], include_in_schema=False)
+@router.get("/", response_model=list[schemas.OrderSummaryOut])
+@router.get("", response_model=list[schemas.OrderSummaryOut], include_in_schema=False)
 def list_orders(
     response: Response,
-    status: Optional[str] = None,
-    date_filter: Optional[date] = None,
-    limit: int = Query(
-        DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description=f"Maximum number of orders to return (1..{MAX_PAGE_SIZE})",
-    ),
-    offset: int = Query(
-        0,
-        ge=0,
-        description="Number of orders to skip (must be >= 0)",
-    ),
-    db: Session = Depends(get_db),
-    current_user=Depends(auth.get_current_user),
-):
+    db: DbSession,
+    current_user: CurrentUser,
+    status: str | None = None,
+    date_filter: date | None = None,
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=MAX_PAGE_SIZE,
+            description=f"Maximum number of orders to return (1..{MAX_PAGE_SIZE})",
+        ),
+    ] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[
+        int,
+        Query(
+            ge=0,
+            description="Number of orders to skip (must be >= 0)",
+        ),
+    ] = 0,
+) -> Sequence[Row[int, str, datetime]]:
     q = db.query(models.Order.id, models.Order.status, models.Order.created_at)
     if not current_user.is_manager:
         if current_user.id is None:

@@ -1,37 +1,68 @@
-from contextlib import contextmanager
 import os
+from collections.abc import Callable, Generator, Iterator
+from contextlib import contextmanager
+from typing import Any
+
+from fastapi import Request
+from typing import Optional
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except Exception:
     pass
 
-DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./dev.db"
-INSTANCE_SOCKET = os.getenv("INSTANCE_UNIX_SOCKET")
+DATABASE_URL: str = os.getenv("DATABASE_URL") or "sqlite:///./dev.db"
+INSTANCE_SOCKET: str | None = os.getenv("INSTANCE_UNIX_SOCKET")
 
-if INSTANCE_SOCKET and not DATABASE_URL.startswith("sqlite"):
+if INSTANCE_SOCKET and DATABASE_URL.startswith(("postgresql", "postgres")):
     DATABASE_URL = DATABASE_URL.replace("localhost", f"/cloudsql/{INSTANCE_SOCKET}")
 
-connect_args = (
-    {"check_same_thread": False}
-    if DATABASE_URL and DATABASE_URL.startswith("sqlite")
-    else {"sslmode": "disable"}
-)
+connect_args: dict[str, Any] = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+elif DATABASE_URL.startswith(("postgresql", "postgres")):
+    connect_args = {"sslmode": "disable"}
+DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
+INSTANCE_SOCKET = os.getenv("INSTANCE_UNIX_SOCKET")
+
+# Fallback to SQLite for quick local runs if DATABASE_URL is not provided
+if not DATABASE_URL or not DATABASE_URL.strip():
+    DATABASE_URL = "sqlite:///./dev.db"
+
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    try:
+        import psycopg  # noqa: F401
+    except ImportError:
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+# If using Cloud SQL unix socket on Cloud Run (Postgres), rewrite host
+if INSTANCE_SOCKET and DATABASE_URL.startswith("postgresql"):
+    DATABASE_URL = DATABASE_URL.replace("localhost", f"/cloudsql/{INSTANCE_SOCKET}")
+
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
 
 # Create the SQLAlchemy engine
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
 # Base class for models
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
+
 
 # Dependency to provide a DB session to FastAPI routes
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
@@ -40,26 +71,29 @@ def get_db():
 
 
 @contextmanager
-def session_scope(request=None):
+def session_scope(request: Request | None = None) -> Generator[Session, None, None]:
     """Open a short-lived DB session on the current worker thread.
 
     Uses `SessionLocal()` in normal execution while honoring FastAPI
     `app.dependency_overrides[get_db]` when tests override `get_db`.
     """
-    override = None
+    override: Callable[[], Any] | None = None
     if request is not None:
         app_obj = request.scope.get("app")
         if app_obj is not None:
-            override = getattr(app_obj, "dependency_overrides", {}).get(get_db)
+            overrides: dict[Any, Callable[[], Any]] = getattr(
+                app_obj, "dependency_overrides", {}
+            )
+            override = overrides.get(get_db)
 
     if override is not None:
         resolved = override()
-        if hasattr(resolved, "__next__"):
-            db = next(resolved)
+        if isinstance(resolved, Iterator):
+            db_gen: Session = next(resolved)
             try:
-                yield db
+                yield db_gen
             except Exception:
-                db.rollback()
+                db_gen.rollback()
                 raise
             finally:
                 try:
@@ -67,11 +101,11 @@ def session_scope(request=None):
                 except StopIteration:
                     pass
         else:
-            db = resolved
+            db_direct: Session = resolved
             try:
-                yield db
+                yield db_direct
             except Exception:
-                db.rollback()
+                db_direct.rollback()
                 raise
         return
 

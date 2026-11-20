@@ -1,9 +1,10 @@
-from datetime import datetime
 import importlib.util
-from pathlib import Path
 import re
-from unittest.mock import AsyncMock, patch
 import warnings
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, patch
 
 from pydantic import TypeAdapter
 from pydantic.warnings import PydanticDeprecatedSince20
@@ -66,12 +67,14 @@ def test_bootstrap_script_schema_template_uses_pydantic_v2_without_warnings():
         script_text,
         flags=re.DOTALL,
     )
-    assert match is not None, "Could not locate backend/app/schemas.py template in bootstrap_coffee_shop.sh"
+    assert match is not None, (
+        "Could not locate backend/app/schemas.py template in bootstrap_coffee_shop.sh"
+    )
     template_source = match.group(1)
     assert "orm_mode" not in template_source
     assert "class Config" not in template_source
 
-    namespace: dict = {}
+    namespace: dict[str, Any] = {}
     with warnings.catch_warnings(record=True) as recorded:
         warnings.simplefilter("always")
         exec(compile(template_source, "bootstrap_schemas.py", "exec"), namespace)
@@ -107,15 +110,13 @@ def test_routers_do_not_retain_legacy_v1_calls_or_shims():
 
 
 def test_orm_validation_parity_and_projected_row_summaries(db_session):
-    ts = datetime(2026, 11, 18, 12, 0, 0, 123456)
+    ts = datetime(2026, 11, 18, 12, 0, 0, 123456, tzinfo=UTC).replace(tzinfo=None)
     user = db_session.query(models.User).filter_by(username="manager").first()
     assert user is not None
 
     espresso = models.Product(name="V2 Espresso", price=3.25, stock=50)
     latte = models.Product(name="V2 Latte", price=4.75, stock=40)
-    report = models.SalesReport(
-        report_type="daily", total_sales=128.5, created_at=ts
-    )
+    report = models.SalesReport(report_type="daily", total_sales=128.5, created_at=ts)
     db_session.add_all([espresso, latte, report])
     db_session.flush()
 
@@ -256,8 +257,7 @@ def test_inventory_and_order_null_product_fallback_emit_zero_warnings(
             assert list_resp.status_code == 200
             summaries = list_resp.json()
             assert any(
-                s["id"] == order_id
-                and set(s.keys()) == {"id", "status", "created_at"}
+                s["id"] == order_id and set(s.keys()) == {"id", "status", "created_at"}
                 for s in summaries
             )
 
@@ -276,9 +276,7 @@ def test_inventory_and_order_null_product_fallback_emit_zero_warnings(
             )
             assert orm_order is not None
             serialized_fallback = _serialize_order(orm_order)
-            by_product_id = {
-                it.product_id: it for it in serialized_fallback.items
-            }
+            by_product_id = {it.product_id: it for it in serialized_fallback.items}
             assert by_product_id[p1["id"]].product is not None
             assert by_product_id[p1["id"]].product.name == "Cortado V2"
             assert by_product_id[p2["id"]].product is None
@@ -291,9 +289,7 @@ def test_inventory_and_order_null_product_fallback_emit_zero_warnings(
             assert cancel_resp.status_code == 200
             cancelled = cancel_resp.json()
             assert cancelled["status"] == "cancelled"
-            cancelled_items = {
-                it["product_id"]: it for it in cancelled["items"]
-            }
+            cancelled_items = {it["product_id"]: it for it in cancelled["items"]}
             assert cancelled_items[p1["id"]]["product"] == {
                 "id": p1["id"],
                 "name": "Cortado V2",

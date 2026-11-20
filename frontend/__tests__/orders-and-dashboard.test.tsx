@@ -38,9 +38,14 @@ import Orders from '../pages/orders'
 import Dashboard from '../pages/dashboard'
 
 function makeValidJwt(): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
-    JSON.stringify({ sub: 'barista@coffee.test', exp: Math.floor(Date.now() / 1000) + 3600 })
+    JSON.stringify({
+      sub: 'barista@coffee.test',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    })
   ).toString('base64url')
   return `${header}.${payload}.sig`
 }
@@ -156,7 +161,12 @@ describe('Orders page', () => {
     const originalArrayFind = Array.prototype.find
     let productFindCalls = 0
     Array.prototype.find = function (...args: any[]) {
-      if (this.length > 0 && this[0] && typeof this[0] === 'object' && 'stock' in this[0]) {
+      if (
+        this.length > 0 &&
+        this[0] &&
+        typeof this[0] === 'object' &&
+        'stock' in this[0]
+      ) {
         productFindCalls++
       }
       return originalArrayFind.apply(this, args as any)
@@ -190,7 +200,9 @@ describe('Orders page', () => {
       assert.equal(row2Cells[1], 'Invalid Date')
 
       // Interactive state updates: add both products to cart, change status, open/close modal
-      const inputs = renderer.root.findAll((n) => n.type === 'input' && n.props.type === 'number')
+      const inputs = renderer.root.findAll(
+        (n) => n.type === 'input' && n.props.type === 'number'
+      )
       assert.equal(inputs.length, 2)
 
       await act(async () => {
@@ -210,7 +222,10 @@ describe('Orders page', () => {
       assert.equal(toLocaleStringCalls, 0)
       assert.equal(formatOrderDateCalls, 2)
 
-      const cartListItems = renderer.root.findByType('ul').findAllByType('li').map(getText)
+      const cartListItems = renderer.root
+        .findByType('ul')
+        .findAllByType('li')
+        .map(getText)
       assert.deepEqual(cartListItems, ['Espresso× 3', 'Oat Latte× 1'])
 
       // Edge case: missing product in cart (e.g. inventory lacks product 20 while cart still references it)
@@ -221,12 +236,17 @@ describe('Orders page', () => {
         await flushPromises()
       })
 
-      const updatedCartItems = renderer.root.findByType('ul').findAllByType('li').map(getText)
+      const updatedCartItems = renderer.root
+        .findByType('ul')
+        .findAllByType('li')
+        .map(getText)
       assert.deepEqual(updatedCartItems, ['Espresso× 3'])
 
       // Modal payload verification: clicking View passes the exact unmodified Order object
       const buttons = renderer.root.findAllByType('button')
-      const viewFirstOrderBtn = buttons.find((b) => getText(b) === 'View order #101')
+      const viewFirstOrderBtn = buttons.find(
+        (b) => getText(b) === 'View order #101'
+      )
       assert.ok(viewFirstOrderBtn, 'Expected View button on order row')
 
       await act(async () => {
@@ -235,7 +255,12 @@ describe('Orders page', () => {
 
       const modal = renderer.root.findByType(OrderDetailModal)
       assert.equal(modal.props.order, sampleOrders[0])
-      assert.deepEqual(Object.keys(modal.props.order), ['id', 'status', 'created_at', 'items'])
+      assert.deepEqual(Object.keys(modal.props.order), [
+        'id',
+        'status',
+        'created_at',
+        'items',
+      ])
       assert.equal(toLocaleStringCalls, 0)
       assert.equal(formatOrderDateCalls, 2)
 
@@ -294,20 +319,27 @@ describe('Dashboard page', () => {
       })
 
       assert.equal(toLocaleStringCalls, 0)
-      const items = renderer.root.findByType('ul').findAllByType('li').map(getText)
+      const items = renderer.root
+        .findByType('ul')
+        .findAllByType('li')
+        .map(getText)
       assert.deepEqual(items, [
         `#201 — completed — ${expectedDate}`,
         '#202 — pending — Invalid Date',
       ])
       // Ensure original API objects were not mutated
-      assert.deepEqual(Object.keys(recentOrders[0]), ['id', 'status', 'created_at'])
+      assert.deepEqual(Object.keys(recentOrders[0]), [
+        'id',
+        'status',
+        'created_at',
+      ])
     } finally {
       renderer?.unmount()
     }
   })
 
   it('renders an empty list safely when summary.recentOrders is missing from API payload', async () => {
-    api.get = (async () => ({ data: { totalSales: 15 } } as any)) as any
+    api.get = (async () => ({ data: { totalSales: 15 } }) as any) as any
 
     let renderer!: TestRenderer.ReactTestRenderer
     try {

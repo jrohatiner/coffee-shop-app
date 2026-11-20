@@ -2,6 +2,7 @@
 import { useEffect, useId, useState } from 'react'
 import api from '../lib/api'
 import { OrderDetail, OrderSummary } from '../lib/orderState'
+import { getApiErrorDetail } from '../types/api'
 import Dialog from './ui/Dialog'
 import Button from './ui/Button'
 
@@ -10,7 +11,10 @@ type OrderDetailModalProps = {
   onClose: () => void
 }
 
-export default function OrderDetailModal({ order, onClose }: OrderDetailModalProps) {
+export default function OrderDetailModal({
+  order,
+  onClose,
+}: OrderDetailModalProps) {
   const titleId = useId()
   const [state, setState] = useState<{
     orderId: number | null
@@ -39,12 +43,12 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
           error: null,
         })
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if (!active) return
         setState({
           orderId: order.id,
           detail: null,
-          error: err?.response?.data?.detail ?? 'Failed to load order details',
+          error: getApiErrorDetail(err, 'Failed to load order details'),
         })
       })
 
@@ -62,9 +66,15 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
       : (state.orderId === order.id && state.detail?.status) || order.status
 
   return (
-    <Dialog open={Boolean(order)} onOpenChange={onClose} aria-labelledby={titleId}>
+    <Dialog
+      open={Boolean(order)}
+      onOpenChange={onClose}
+      aria-labelledby={titleId}
+    >
       <div className="space-y-2">
-        <h2 id={titleId} className="text-lg font-semibold">Order #{order.id}</h2>
+        <h2 id={titleId} className="text-lg font-semibold">
+          Order #{order.id}
+        </h2>
         <div>Status: {displayStatus}</div>
         <div>Items:</div>
         {isLoading && (
@@ -80,11 +90,15 @@ export default function OrderDetailModal({ order, onClose }: OrderDetailModalPro
         {!isLoading && !state.error && (
           <ul className="list-disc ml-5">
             {state.detail?.items?.map((it) => (
-              <li key={it.id}>{it.product?.name ?? 'Item'} × {it.quantity}</li>
+              <li key={it.id}>
+                {it.product?.name ?? 'Item'} × {it.quantity}
+              </li>
             ))}
           </ul>
         )}
-        <Button type="button" className="mt-3" onClick={onClose}>Close</Button>
+        <Button type="button" className="mt-3" onClick={onClose}>
+          Close
+        </Button>
       </div>
     </Dialog>
   )

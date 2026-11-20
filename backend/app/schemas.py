@@ -1,20 +1,23 @@
 from datetime import datetime
-from enum import Enum
-from typing import List, Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
+
 
 # ---------- Users ----------
 class UserBase(BaseModel):
     username: str
-    is_manager: Optional[bool] = False
+    is_manager: bool | None = False
+
 
 class UserCreate(UserBase):
     password: str
 
+
 class UserOut(UserBase):
     id: int
     model_config = ConfigDict(from_attributes=True)
+
 
 # ---------- Products ----------
 class ProductBase(BaseModel):
@@ -22,8 +25,10 @@ class ProductBase(BaseModel):
     price: float
     stock: int
 
+
 class ProductCreate(ProductBase):
     pass
+
 
 class ProductOut(ProductBase):
     id: int
@@ -31,48 +36,57 @@ class ProductOut(ProductBase):
 
 
 class StockDeltaOut(BaseModel):
-    updated: List[ProductOut] = []
-    deleted_ids: List[int] = []
+    updated: list[ProductOut] = []
+    deleted_ids: list[int] = []
+
 
 # ---------- Orders ----------
-class OrderStatus(str, Enum):
+class OrderStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
+
 class OrderItemBase(BaseModel):
     product_id: int
     quantity: int
 
+
 class OrderItemCreate(OrderItemBase):
     pass
 
+
 # Order creation no longer requires user_id; we take it from token
 class OrderCreate(BaseModel):
-    status: Optional[str] = "pending"
-    items: List[OrderItemCreate]
+    status: str | None = "pending"
+    items: list[OrderItemCreate]
+
 
 class OrderItemOut(OrderItemBase):
     id: int
     product: ProductOut
     model_config = ConfigDict(from_attributes=True)
 
+
 class OrderBase(BaseModel):
-    status: Optional[str] = "pending"
+    status: str | None = "pending"
+
 
 class OrderSummaryOut(BaseModel):
     id: int
-    status: Optional[str] = "pending"
+    status: str | None = "pending"
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+
 class OrderOut(OrderBase):
     id: int
-    user_id: Optional[int] = None
+    user_id: int | None = None
     created_at: datetime
-    items: List[OrderItemOut]
+    items: list[OrderItemOut]
     model_config = ConfigDict(from_attributes=True)
+
 
 # ---------- Reports ----------
 class SalesReportOut(BaseModel):
@@ -82,10 +96,12 @@ class SalesReportOut(BaseModel):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+
 # ---------- Auth ----------
 class Token(BaseModel):
     access_token: str
     token_type: str
 
+
 class TokenData(BaseModel):
-    username: Optional[str] = None
+    username: str | None = None
