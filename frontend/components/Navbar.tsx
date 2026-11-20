@@ -1,13 +1,14 @@
 'use client'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { clearAuthToken } from '../hooks/useAuth'
 import { Button } from './ui/Button'
 
 export default function Navbar() {
   const router = useRouter()
 
   const logout = () => {
-    localStorage.removeItem('token')
+    clearAuthToken()
     router.push('/login')
   }
 
