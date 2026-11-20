@@ -2,7 +2,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,25 +13,28 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-# Ensure backend root is importable and DATABASE_URL is valid before importing app modules
+# Ensure backend root is importable and DATABASE_URL is set before app imports
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-os.environ.setdefault("DATABASE_URL", "postgresql+psycopg2://user:pass@localhost:5432/test_db")
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql+psycopg2://user:pass@localhost:5432/test_db"
+)
 
 from app import auth, models  # noqa: E402
 from app.database import Base, get_db  # noqa: E402
 from app.routers import orders as orders_router  # noqa: E402
 
-
-SELECT_PRODUCTS_RE = re.compile(r"^\s*SELECT\b.*\bFROM\s+products\b", re.IGNORECASE | re.DOTALL)
+SELECT_PRODUCTS_RE = re.compile(
+    r"^\s*SELECT\b.*\bFROM\s+products\b", re.IGNORECASE | re.DOTALL
+)
 
 
 class QueryTracker:
     def __init__(self) -> None:
-        self.statements: List[str] = []
-        self.pg_statements: List[str] = []
+        self.statements: list[str] = []
+        self.pg_statements: list[str] = []
         self.commits: int = 0
 
     def reset(self) -> None:
@@ -40,11 +43,11 @@ class QueryTracker:
         self.commits = 0
 
     @property
-    def product_selects(self) -> List[str]:
+    def product_selects(self) -> list[str]:
         return [stmt for stmt in self.statements if SELECT_PRODUCTS_RE.match(stmt)]
 
     @property
-    def pg_product_selects(self) -> List[str]:
+    def pg_product_selects(self) -> list[str]:
         return [stmt for stmt in self.pg_statements if SELECT_PRODUCTS_RE.match(stmt)]
 
 
@@ -72,7 +75,9 @@ def test_env(monkeypatch):
     @event.listens_for(TestingSessionLocal, "do_orm_execute")
     def _on_orm_execute(orm_execute_state):
         if orm_execute_state.is_select:
-            compiled = str(orm_execute_state.statement.compile(dialect=postgresql.dialect()))
+            compiled = str(
+                orm_execute_state.statement.compile(dialect=postgresql.dialect())
+            )
             tracker.pg_statements.append(compiled)
 
     @event.listens_for(TestingSessionLocal, "after_commit")
@@ -81,7 +86,9 @@ def test_env(monkeypatch):
 
     # Seed user and 15 distinct products
     seed_db = TestingSessionLocal()
-    user = models.User(id=1, username="barista", hashed_password="hashed", is_manager=False)
+    user = models.User(
+        id=1, username="barista", hashed_password="hashed", is_manager=False
+    )
     products = [
         models.Product(name=f"Coffee #{i}", price=3.50 + i * 0.25, stock=20)
         for i in range(1, 16)
@@ -93,7 +100,7 @@ def test_env(monkeypatch):
     product_ids = [p.id for p in products]
     seed_db.close()
 
-    emit_events: List[Tuple[str, Tuple, dict]] = []
+    emit_events: list[tuple[str, tuple[Any, ...], dict[str, int]]] = []
 
     async def _fake_emit(event_name: str, *args, **kwargs):
         # Verify emit occurs only after transaction changes are committed
@@ -150,7 +157,7 @@ def test_env(monkeypatch):
 def test_multi_item_create_and_cancel_batch_product_queries_and_single_commit(test_env):
     client: TestClient = test_env["client"]
     tracker: QueryTracker = test_env["tracker"]
-    product_ids: List[int] = test_env["product_ids"]
+    product_ids: list[int] = test_env["product_ids"]
     emit_events = test_env["emit_events"]
     SessionLocal = test_env["SessionLocal"]
 
@@ -173,7 +180,9 @@ def test_multi_item_create_and_cancel_batch_product_queries_and_single_commit(te
     assert "FOR UPDATE" in tracker.pg_product_selects[0]
     assert tracker.commits == 1
     assert [ev[0] for ev in emit_events] == ["new_order", "stock_update"]
-    assert all(ev[2]["commits_so_far"] == 1 and ev[2]["order_count"] == 1 for ev in emit_events)
+    assert all(
+        ev[2]["commits_so_far"] == 1 and ev[2]["order_count"] == 1 for ev in emit_events
+    )
 
     # Cancel the 15-item order
     order_id = data["id"]
@@ -204,8 +213,7 @@ def test_multi_item_create_and_cancel_batch_product_queries_and_single_commit(te
     db = SessionLocal()
     try:
         stocks = [
-            p.stock
-            for p in db.query(models.Product).order_by(models.Product.id).all()
+            p.stock for p in db.query(models.Product).order_by(models.Product.id).all()
         ]
         assert stocks == [20] * 15
     finally:
@@ -216,7 +224,7 @@ def test_multi_item_create_and_cancel_batch_product_queries_and_single_commit(te
 def test_constant_product_select_count_across_cart_sizes(test_env, item_count):
     client: TestClient = test_env["client"]
     tracker: QueryTracker = test_env["tracker"]
-    product_ids: List[int] = test_env["product_ids"][:item_count]
+    product_ids: list[int] = test_env["product_ids"][:item_count]
 
     tracker.reset()
     create_resp = client.post(
@@ -238,7 +246,7 @@ def test_constant_product_select_count_across_cart_sizes(test_env, item_count):
 def test_http_400_failures_leave_zero_orphan_orders_and_unchanged_stock(test_env):
     client: TestClient = test_env["client"]
     tracker: QueryTracker = test_env["tracker"]
-    product_ids: List[int] = test_env["product_ids"]
+    product_ids: list[int] = test_env["product_ids"]
     emit_events = test_env["emit_events"]
     SessionLocal = test_env["SessionLocal"]
 
@@ -298,7 +306,9 @@ def test_http_400_failures_leave_zero_orphan_orders_and_unchanged_stock(test_env
     try:
         assert db.query(models.Order).count() == 0
         assert db.query(models.OrderItem).count() == 0
-        stocks = [p.stock for p in db.query(models.Product).order_by(models.Product.id).all()]
+        stocks = [
+            p.stock for p in db.query(models.Product).order_by(models.Product.id).all()
+        ]
         assert stocks == [20] * 15
     finally:
         db.close()
@@ -332,7 +342,9 @@ def test_duplicate_product_ids_aggregate_for_validation_deduction_and_restock(te
     db = SessionLocal()
     try:
         assert db.query(models.Order).count() == 0
-        assert db.query(models.Product).filter(models.Product.id == pid).one().stock == 20
+        assert (
+            db.query(models.Product).filter(models.Product.id == pid).one().stock == 20
+        )
     finally:
         db.close()
 
@@ -395,7 +407,7 @@ def test_empty_items_and_idempotent_cancel_and_missing_product_restock(test_env)
     assert len(tracker.product_selects) == 0
     assert tracker.commits == 1
 
-    # Create 2-item order, cancel once, then verify second cancel returns early without double restock
+    # Create 2-item order, cancel once, then verify second cancel does not restock twice
     create_resp = client.post(
         "/orders/",
         json={
@@ -423,7 +435,7 @@ def test_empty_items_and_idempotent_cancel_and_missing_product_restock(test_env)
     assert tracker.commits == 0
     assert emit_events == []
 
-    # Create another 2-item order, delete one Product row, and verify cancel safely restocks remaining product
+    # Create 2-item order, delete one Product row, and verify cancel restocks the other
     create_resp2 = client.post(
         "/orders/",
         json={
@@ -468,7 +480,9 @@ def test_empty_items_and_idempotent_cancel_and_missing_product_restock(test_env)
 
     db = SessionLocal()
     try:
-        assert db.query(models.Product).filter(models.Product.id == p1).one().stock == 20
+        assert (
+            db.query(models.Product).filter(models.Product.id == p1).one().stock == 20
+        )
     finally:
         db.close()
 

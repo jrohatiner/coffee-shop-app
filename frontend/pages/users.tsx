@@ -5,15 +5,20 @@ import api from '../lib/api'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import { toast } from '../components/ui/use-toast'
+import type { UserOut } from '../types/api'
 
-export type UserItem = { id: number; username: string; is_manager?: boolean }
+export type UserItem = UserOut
 
 export const CreateUserForm = memo(function CreateUserForm({
   onCreated,
 }: {
   onCreated: () => void
 }) {
-  const [form, setForm] = useState({ username: '', password: '', is_manager: false })
+  const [form, setForm] = useState({
+    username: '',
+    password: '',
+    is_manager: false,
+  })
 
   const create = async () => {
     try {
@@ -22,7 +27,11 @@ export const CreateUserForm = memo(function CreateUserForm({
       setForm({ username: '', password: '', is_manager: false })
       onCreated()
     } catch {
-      toast({ title: 'Error', description: 'Failed to create', variant: 'destructive' })
+      toast({
+        title: 'Error',
+        description: 'Failed to create',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -32,8 +41,11 @@ export const CreateUserForm = memo(function CreateUserForm({
       <Input
         label="Username"
         value={form.username}
-        onChange={e =>
-          setForm(prev => ({ ...prev, username: (e.target as HTMLInputElement).value }))
+        onChange={(e) =>
+          setForm((prev) => ({
+            ...prev,
+            username: (e.target as HTMLInputElement).value,
+          }))
         }
       />
       <Input
@@ -41,16 +53,22 @@ export const CreateUserForm = memo(function CreateUserForm({
         type="password"
         autoComplete="new-password"
         value={form.password}
-        onChange={e =>
-          setForm(prev => ({ ...prev, password: (e.target as HTMLInputElement).value }))
+        onChange={(e) =>
+          setForm((prev) => ({
+            ...prev,
+            password: (e.target as HTMLInputElement).value,
+          }))
         }
       />
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
           checked={form.is_manager}
-          onChange={e =>
-            setForm(prev => ({ ...prev, is_manager: (e.target as HTMLInputElement).checked }))
+          onChange={(e) =>
+            setForm((prev) => ({
+              ...prev,
+              is_manager: (e.target as HTMLInputElement).checked,
+            }))
           }
         />
         <span>Manager</span>
@@ -72,7 +90,10 @@ export const UserRow = memo(function UserRow({
       <span>
         {user.username} {user.is_manager ? '(Manager)' : ''}
       </span>
-      <Button contextLabel={`user ${user.username}`} onClick={() => onDelete(user.id)}>
+      <Button
+        contextLabel={`user ${user.username}`}
+        onClick={() => onDelete(user.id)}
+      >
         Delete
       </Button>
     </li>
@@ -86,8 +107,14 @@ export default function Users() {
   const load = useCallback(() => {
     api
       .get('/users')
-      .then(r => setUsers(r.data))
-      .catch(() => toast({ title: 'Error', description: 'Manager only', variant: 'destructive' }))
+      .then((r) => setUsers(r.data))
+      .catch(() =>
+        toast({
+          title: 'Error',
+          description: 'Manager only',
+          variant: 'destructive',
+        })
+      )
   }, [])
 
   useEffect(() => {
@@ -101,7 +128,11 @@ export default function Users() {
         toast({ title: 'User deleted' })
         load()
       } catch {
-        toast({ title: 'Error', description: 'Failed to delete', variant: 'destructive' })
+        toast({
+          title: 'Error',
+          description: 'Failed to delete',
+          variant: 'destructive',
+        })
       }
     },
     [load]
@@ -118,7 +149,7 @@ export default function Users() {
           Existing
         </h2>
         <ul aria-labelledby="existing-users-heading" className="space-y-2">
-          {users.map(u => (
+          {users.map((u) => (
             <UserRow key={u.id} user={u} onDelete={del} />
           ))}
         </ul>

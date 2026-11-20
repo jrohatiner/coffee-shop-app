@@ -1,19 +1,18 @@
-from typing import Dict, Optional, Set, Union
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect
 from sqlalchemy.engine import Connection, Engine
 
-from .database import Base, engine
-from .routers import auth as auth_router, dashboard, orders, inventory, reports, users
-from .websockets import init_websockets
 from .auth import get_jwt_secret
+from .database import Base, engine
+from .routers import auth as auth_router
+from .routers import dashboard, inventory, orders, reports, users
+from .websockets import init_websockets
 
 
 def _ensure_indexes_on_connection(conn: Connection) -> None:
     inspector = inspect(conn)
-    tables_by_schema: Dict[Optional[str], Set[str]] = {}
+    tables_by_schema: dict[str | None, set[str]] = {}
     for table in Base.metadata.tables.values():
         if table.schema not in tables_by_schema:
             tables_by_schema[table.schema] = set(
@@ -35,7 +34,7 @@ def _ensure_indexes_on_connection(conn: Connection) -> None:
                 existing_index_names.add(index.name)
 
 
-def ensure_indexes(bind_engine: Union[Engine, Connection] = engine) -> None:
+def ensure_indexes(bind_engine: Engine | Connection = engine) -> None:
     if isinstance(bind_engine, Connection):
         if bind_engine.in_transaction():
             _ensure_indexes_on_connection(bind_engine)
@@ -53,14 +52,18 @@ with engine.begin() as conn:
 
 app = FastAPI(title="Coffee Shop Ordering System", version="1.0.0")
 
+
 @app.on_event("startup")
-def startup_event():
+def startup_event() -> None:
     get_jwt_secret()
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["X-Has-More"],
 )
 

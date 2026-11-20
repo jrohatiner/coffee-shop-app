@@ -1,6 +1,14 @@
 'use client'
 import { useAuth } from '../hooks/useAuth'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import { toast } from '../components/ui/use-toast'
@@ -30,10 +38,15 @@ import {
   StockDelta,
   toOrderSummary,
 } from '../lib/orderState'
+import {
+  getApiErrorDetail,
+  OrderItemOut,
+  OrderStatus,
+  unrefTimer,
+} from '../types/api'
 
 export type Product = ProductItem
-export type Order = OrderSummary & { items?: any[] }
-type OrderStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled'
+export type Order = OrderSummary & { items?: OrderItemOut[] }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
@@ -73,8 +86,11 @@ export const ProductPickerRow = memo(function ProductPickerRow({
         type="number"
         min={0}
         value={quantity}
-        onChange={e =>
-          onChangeQty(product.id, parseInt((e.target as HTMLInputElement).value || '0', 10))
+        onChange={(e) =>
+          onChangeQty(
+            product.id,
+            parseInt((e.target as HTMLInputElement).value || '0', 10)
+          )
         }
         className="w-20"
       />
@@ -98,13 +114,13 @@ export const OrderCreator = memo(function OrderCreator({
   const [status, setStatus] = useState<OrderStatus>('pending')
 
   const productById = useMemo(
-    () => new Map<number, Product>(products.map(p => [p.id, p])),
+    () => new Map<number, Product>(products.map((p) => [p.id, p])),
     [products]
   )
 
   const setQty = useCallback((pid: number, qty: number) => {
     const normalizedQty = Number.isNaN(qty) ? 0 : qty
-    setCart(prev => {
+    setCart((prev) => {
       if (normalizedQty <= 0) {
         if (!(pid in prev)) return prev
         const next = { ...prev }
@@ -138,10 +154,10 @@ export const OrderCreator = memo(function OrderCreator({
       if (!reconciledInPlace) {
         await onOrderCreated()
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: 'Error',
-        description: e?.response?.data?.detail ?? 'Failed to create order',
+        description: getApiErrorDetail(e, 'Failed to create order'),
         variant: 'destructive',
       })
     }
@@ -154,7 +170,7 @@ export const OrderCreator = memo(function OrderCreator({
         <div className="space-y-2">
           <div className="font-medium">Pick Products</div>
           <div className="space-y-2 max-h-80 overflow-auto pr-2">
-            {products.map(p => (
+            {products.map((p) => (
               <ProductPickerRow
                 key={p.id}
                 product={p}
@@ -170,7 +186,7 @@ export const OrderCreator = memo(function OrderCreator({
             label="Order Status"
             labelClassName="text-base font-medium text-gray-900"
             value={status}
-            onChange={e => setStatus(e.target.value as OrderStatus)}
+            onChange={(e) => setStatus(e.target.value as OrderStatus)}
           >
             <option value="pending">pending</option>
             <option value="in_progress">in_progress</option>
@@ -227,7 +243,10 @@ export const OrderRow = memo(function OrderRow({
           View
         </Button>
         {order.status !== 'cancelled' && order.status !== 'completed' && (
-          <Button contextLabel={contextLabel} onClick={() => onCancel(order.id)}>
+          <Button
+            contextLabel={contextLabel}
+            onClick={() => onCancel(order.id)}
+          >
             Cancel
           </Button>
         )}
@@ -246,7 +265,11 @@ export const OrdersTable = memo(function OrdersTable({
   onCancel: (id: number) => void
 }) {
   const orderRows = useMemo(
-    () => orders.map(order => ({ order, formattedCreatedAt: formatOrderDate(order.created_at) })),
+    () =>
+      orders.map((order) => ({
+        order,
+        formattedCreatedAt: formatOrderDate(order.created_at),
+      })),
     [orders]
   )
 
@@ -306,7 +329,7 @@ const OrdersFilters = memo(function OrdersFilters({
         label="Status Filter"
         wrapperClassName="flex flex-col gap-1"
         value={statusFilter}
-        onChange={e => onStatusFilterChange(e.target.value)}
+        onChange={(e) => onStatusFilterChange(e.target.value)}
       >
         <option value="">All statuses</option>
         <option value="pending">pending</option>
@@ -322,7 +345,9 @@ const OrdersFilters = memo(function OrdersFilters({
         type="date"
         className="w-44"
         value={dateFilter}
-        onChange={e => onDateFilterChange((e.target as HTMLInputElement).value)}
+        onChange={(e) =>
+          onDateFilterChange((e.target as HTMLInputElement).value)
+        }
       />
 
       <Select
@@ -330,16 +355,18 @@ const OrdersFilters = memo(function OrdersFilters({
         label="Page Size"
         wrapperClassName="flex flex-col gap-1"
         value={pageSize}
-        onChange={e => onPageSizeChange(Number(e.target.value))}
+        onChange={(e) => onPageSizeChange(Number(e.target.value))}
       >
-        {PAGE_SIZE_OPTIONS.map(size => (
+        {PAGE_SIZE_OPTIONS.map((size) => (
           <option key={size} value={size}>
             {size} per page
           </option>
         ))}
       </Select>
 
-      {(statusFilter || dateFilter) && <Button onClick={onClearFilters}>Clear Filters</Button>}
+      {(statusFilter || dateFilter) && (
+        <Button onClick={onClearFilters}>Clear Filters</Button>
+      )}
     </div>
   )
 })
@@ -360,7 +387,8 @@ const OrdersPagination = memo(function OrdersPagination({
   return (
     <div className="flex items-center justify-between pt-2">
       <div className="text-sm text-gray-600">
-        Page {page} · Showing {ordersCount} {ordersCount === 1 ? 'order' : 'orders'}
+        Page {page} · Showing {ordersCount}{' '}
+        {ordersCount === 1 ? 'order' : 'orders'}
       </div>
       <div className="flex items-center gap-2">
         <Button
@@ -397,12 +425,20 @@ export default function Orders() {
 
   const requestSeqRef = useRef(0)
   const pendingLocalCreatesRef = useRef<ReturnType<typeof setTimeout>[]>([])
-  const pendingLocalCancelsRef = useRef<Map<number, ReturnType<typeof setTimeout> | null>>(new Map())
+  const pendingLocalCancelsRef = useRef<
+    Map<number, ReturnType<typeof setTimeout> | null>
+  >(new Map())
   const pendingLocalStockRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   const ordersRef = useRef(orders)
   ordersRef.current = orders
-  const viewStateRef = useRef({ page, pageSize, statusFilter, dateFilter, hasMore })
+  const viewStateRef = useRef({
+    page,
+    pageSize,
+    statusFilter,
+    dateFilter,
+    hasMore,
+  })
   viewStateRef.current = { page, pageSize, statusFilter, dateFilter, hasMore }
 
   const applyCreatedOrder = useCallback((payload: unknown) => {
@@ -412,22 +448,23 @@ export default function Orders() {
       summary &&
       view.page === 1 &&
       (!view.statusFilter || summary.status === view.statusFilter) &&
-      (!view.dateFilter || summary.created_at.slice(0, 10) === view.dateFilter) &&
+      (!view.dateFilter ||
+        summary.created_at.slice(0, 10) === view.dateFilter) &&
       ordersRef.current.length >= view.pageSize &&
-      !ordersRef.current.some(o => o.id === summary.id)
+      !ordersRef.current.some((o) => o.id === summary.id)
     ) {
       setHasMore(true)
     }
-    setOrders(prev => reconcileCreatedOrder(prev, payload, view))
+    setOrders((prev) => reconcileCreatedOrder(prev, payload, view))
   }, [])
 
   const applyCancelledOrder = useCallback((payload: unknown) => {
     const view = viewStateRef.current
-    setOrders(prev => reconcileCancelledOrder(prev, payload, view))
+    setOrders((prev) => reconcileCancelledOrder(prev, payload, view))
   }, [])
 
   const applyStockDelta = useCallback((delta: StockDelta) => {
-    setProducts(prev => reconcileProductsDelta(prev, delta))
+    setProducts((prev) => reconcileProductsDelta(prev, delta))
   }, [])
 
   const fetchOrders = useCallback(() => {
@@ -441,7 +478,7 @@ export default function Orders() {
 
     return api
       .get('/orders', { params })
-      .then(r => {
+      .then((r) => {
         if (seq !== requestSeqRef.current) return
         const data: OrderSummary[] = r.data
         setOrders(data)
@@ -454,7 +491,11 @@ export default function Orders() {
       })
       .catch(() => {
         if (seq !== requestSeqRef.current) return
-        toast({ title: 'Error', description: 'Failed to load orders', variant: 'destructive' })
+        toast({
+          title: 'Error',
+          description: 'Failed to load orders',
+          variant: 'destructive',
+        })
       })
   }, [page, pageSize, statusFilter, dateFilter])
 
@@ -462,7 +503,7 @@ export default function Orders() {
     () =>
       api
         .get('/inventory')
-        .then(r => setProducts(r.data))
+        .then((r) => setProducts(r.data))
         .catch(() => {}),
     []
   )
@@ -489,14 +530,15 @@ export default function Orders() {
   }, [username, loadProducts])
 
   useEffect(() => {
+    const pendingCancels = pendingLocalCancelsRef.current
     return () => {
-      pendingLocalCreatesRef.current.forEach(t => clearTimeout(t))
+      pendingLocalCreatesRef.current.forEach((t) => clearTimeout(t))
       pendingLocalCreatesRef.current = []
-      pendingLocalCancelsRef.current.forEach(t => {
+      pendingCancels.forEach((t) => {
         if (t) clearTimeout(t)
       })
-      pendingLocalCancelsRef.current.clear()
-      pendingLocalStockRef.current.forEach(t => clearTimeout(t))
+      pendingCancels.clear()
+      pendingLocalStockRef.current.forEach((t) => clearTimeout(t))
       pendingLocalStockRef.current = []
     }
   }, [])
@@ -514,14 +556,19 @@ export default function Orders() {
     s.on('order_cancelled', (payload: unknown) => {
       applyCancelledOrderRef.current(payload)
       const record =
-        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+        payload && typeof payload === 'object'
+          ? (payload as Record<string, unknown>)
+          : null
       const cancelledId =
         typeof record?.order_id === 'number'
           ? record.order_id
           : typeof record?.id === 'number'
             ? record.id
             : undefined
-      if (cancelledId != null && pendingLocalCancelsRef.current.has(cancelledId)) {
+      if (
+        cancelledId != null &&
+        pendingLocalCancelsRef.current.has(cancelledId)
+      ) {
         const timer = pendingLocalCancelsRef.current.get(cancelledId)
         if (timer) clearTimeout(timer)
         pendingLocalCancelsRef.current.delete(cancelledId)
@@ -582,13 +629,14 @@ export default function Orders() {
           applyStockDeltaRef.current(stockDelta)
         }
 
-        const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
+        const createIdx =
+          pendingLocalCreatesRef.current.indexOf(createEchoToken)
         if (createIdx !== -1) {
           const expiry = setTimeout(() => {
             const idx = pendingLocalCreatesRef.current.indexOf(expiry)
             if (idx !== -1) pendingLocalCreatesRef.current.splice(idx, 1)
           }, LOCAL_SOCKET_ECHO_TTL_MS)
-          ;(expiry as any)?.unref?.()
+          unrefTimer(expiry)
           pendingLocalCreatesRef.current[createIdx] = expiry
         }
 
@@ -598,14 +646,16 @@ export default function Orders() {
             const idx = pendingLocalStockRef.current.indexOf(expiry)
             if (idx !== -1) pendingLocalStockRef.current.splice(idx, 1)
           }, LOCAL_SOCKET_ECHO_TTL_MS)
-          ;(expiry as any)?.unref?.()
+          unrefTimer(expiry)
           pendingLocalStockRef.current[stockIdx] = expiry
         }
 
         return stockDelta !== null
       } catch (e) {
-        const createIdx = pendingLocalCreatesRef.current.indexOf(createEchoToken)
-        if (createIdx !== -1) pendingLocalCreatesRef.current.splice(createIdx, 1)
+        const createIdx =
+          pendingLocalCreatesRef.current.indexOf(createEchoToken)
+        if (createIdx !== -1)
+          pendingLocalCreatesRef.current.splice(createIdx, 1)
         const stockIdx = pendingLocalStockRef.current.indexOf(stockEchoToken)
         if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
         throw e
@@ -625,7 +675,9 @@ export default function Orders() {
     try {
       const res = await api.post(`/orders/${id}/cancel`)
       const cancelPayload =
-        res?.data && typeof res.data === 'object' && ('id' in res.data || 'order_id' in res.data)
+        res?.data &&
+        typeof res.data === 'object' &&
+        ('id' in res.data || 'order_id' in res.data)
           ? res.data
           : { order_id: id, status: 'cancelled' }
       applyCancelledOrderRef.current(cancelPayload)
@@ -635,7 +687,7 @@ export default function Orders() {
         const expiry = setTimeout(() => {
           pendingLocalCancelsRef.current.delete(id)
         }, LOCAL_SOCKET_ECHO_TTL_MS)
-        ;(expiry as any)?.unref?.()
+        unrefTimer(expiry)
         pendingLocalCancelsRef.current.set(id, expiry)
       }
 
@@ -645,7 +697,7 @@ export default function Orders() {
           const idx = pendingLocalStockRef.current.indexOf(expiry)
           if (idx !== -1) pendingLocalStockRef.current.splice(idx, 1)
         }, LOCAL_SOCKET_ECHO_TTL_MS)
-        ;(expiry as any)?.unref?.()
+        unrefTimer(expiry)
         pendingLocalStockRef.current[stockIdx] = expiry
       }
 
@@ -655,7 +707,7 @@ export default function Orders() {
       } else {
         await loadProductsRef.current()
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       const existing = pendingLocalCancelsRef.current.get(id)
       if (existing) clearTimeout(existing)
       pendingLocalCancelsRef.current.delete(id)
@@ -663,7 +715,7 @@ export default function Orders() {
       if (stockIdx !== -1) pendingLocalStockRef.current.splice(stockIdx, 1)
       toast({
         title: 'Error',
-        description: e?.response?.data?.detail ?? 'Failed to cancel order',
+        description: getApiErrorDetail(e, 'Failed to cancel order'),
         variant: 'destructive',
       })
     }
@@ -699,15 +751,18 @@ export default function Orders() {
   }, [])
 
   const handlePrevPage = useCallback(() => {
-    setPage(p => Math.max(1, p - 1))
+    setPage((p) => Math.max(1, p - 1))
   }, [])
 
   const handleNextPage = useCallback(() => {
-    setPage(p => p + 1)
+    setPage((p) => p + 1)
   }, [])
 
   const selected = useMemo(
-    () => (selectedId !== null ? (orders.find(o => o.id === selectedId) ?? null) : null),
+    () =>
+      selectedId !== null
+        ? (orders.find((o) => o.id === selectedId) ?? null)
+        : null,
     [orders, selectedId]
   )
 
@@ -736,7 +791,11 @@ export default function Orders() {
           onClearFilters={handleClearFilters}
         />
 
-        <OrdersTable orders={orders} onSelect={handleSelectOrder} onCancel={cancelOrder} />
+        <OrdersTable
+          orders={orders}
+          onSelect={handleSelectOrder}
+          onCancel={cancelOrder}
+        />
 
         <OrdersPagination
           page={page}
@@ -747,7 +806,9 @@ export default function Orders() {
         />
       </section>
 
-      {selected && <OrderDetailModal order={selected} onClose={handleCloseModal} />}
+      {selected && (
+        <OrderDetailModal order={selected} onClose={handleCloseModal} />
+      )}
     </div>
   )
 }

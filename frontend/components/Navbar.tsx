@@ -1,13 +1,14 @@
 'use client'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { clearAuthToken } from '../hooks/useAuth'
 import { Button } from './ui/Button'
 
 export default function Navbar() {
   const router = useRouter()
 
   const logout = () => {
-    localStorage.removeItem('token')
+    clearAuthToken()
     router.push('/login')
   }
 
@@ -33,7 +34,9 @@ export default function Navbar() {
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={`inline-flex items-center min-h-[24px] px-2 py-1.5 rounded-full hover:text-blue-600 ${
-                  active ? 'bg-blue-50 font-bold text-blue-600 underline underline-offset-4' : ''
+                  active
+                    ? 'bg-blue-50 font-bold text-blue-600 underline underline-offset-4'
+                    : ''
                 }`}
               >
                 {item.label}

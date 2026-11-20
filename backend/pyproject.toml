@@ -1,0 +1,52 @@
+[project]
+name = "coffee-shop-backend"
+version = "1.0.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "DTZ"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "$MYPY_CONFIG_FILE_DIR"
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "dotenv",
+    "dotenv.*",
+    "httpx",
+    "httpx.*",
+    "jose",
+    "jose.*",
+    "passlib",
+    "passlib.*",
+    "pytest",
+    "pytest.*",
+    "socketio",
+    "socketio.*",
+    "uvicorn",
+    "uvicorn.*",
+    "websockets",
+    "websockets.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests", "tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
