@@ -3,8 +3,8 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import false
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -140,6 +140,7 @@ def _create_order_sync(
 
 def _cancel_order_sync(
     order_id: int,
+    current_user,
     request: Request,
 ) -> Tuple[schemas.OrderOut, bool]:
     with database.session_scope(request) as db:
@@ -151,6 +152,12 @@ def _cancel_order_sync(
         )
         if not order:
             raise HTTPException(404, "Order not found")
+
+        if not (order.user_id == current_user.id or current_user.is_manager):
+            raise HTTPException(403, "Not authorized to cancel this order")
+
+        if order.status in ("completed", "shipped"):
+            raise HTTPException(400, "Cannot cancel order in current status")
 
         product_ids = sorted({it.product_id for it in order.items})
         product_map: Dict[int, models.Product] = {}
@@ -203,9 +210,7 @@ async def create_order(
         order,
         request,
     )
-    order_out = _serialize_order(db_order)
     order_summary = _serialize_order_summary(order_out)
-    db.commit()
 
     # Notify listeners with lightweight summary data
     await sio.emit("new_order", order_summary)
@@ -223,59 +228,16 @@ async def cancel_order(
     order_out, did_cancel = await run_in_threadpool(
         _cancel_order_sync,
         order_id,
+        current_user,
         request,
     )
     if did_cancel:
+        cancelled_payload = {
+            **_serialize_order_summary(order_out),
+            "order_id": order_out.id,
+        }
         await sio.emit("stock_update")
-        await sio.emit("order_cancelled", {"order_id": order_out.id})
-    if not order:
-        raise HTTPException(404, "Order not found")
-
-    if not (order.user_id == current_user.id or current_user.is_manager):
-        raise HTTPException(403, "Not authorized to cancel this order")
-
-    if order.status in ("completed", "shipped"):
-        raise HTTPException(400, "Cannot cancel order in current status")
-
-    product_ids = sorted({it.product_id for it in order.items})
-    product_map: Dict[int, models.Product] = {}
-    if product_ids:
-        product_query = (
-            db.query(models.Product)
-            .filter(models.Product.id.in_(product_ids))
-            .order_by(models.Product.id)
-        )
-        if order.status != "cancelled":
-            product_query = product_query.with_for_update()
-        products = product_query.all()
-        product_map = {prod.id: prod for prod in products}
-
-    for it in order.items:
-        set_committed_value(it, "product", product_map.get(it.product_id))
-
-    if order.status == "cancelled":
-        return _serialize_order(order)
-
-    restock_quantities: Dict[int, int] = {}
-    for it in order.items:
-        restock_quantities[it.product_id] = (
-            restock_quantities.get(it.product_id, 0) + it.quantity
-        )
-
-    for product_id, total_quantity in restock_quantities.items():
-        prod = product_map.get(product_id)
-        if prod:
-            prod.stock += total_quantity
-
-    order.status = "cancelled"
-    db.flush()
-
-    order_out = _serialize_order(order)
-    cancelled_payload = {**_serialize_order_summary(order_out), "order_id": order_out.id}
-    db.commit()
-
-    await sio.emit("stock_update")
-    await sio.emit("order_cancelled", cancelled_payload)
+        await sio.emit("order_cancelled", cancelled_payload)
 
     return order_out
 
@@ -337,6 +299,11 @@ def list_orders(
     current_user=Depends(auth.get_current_user),
 ):
     q = db.query(models.Order.id, models.Order.status, models.Order.created_at)
+    if not current_user.is_manager:
+        if current_user.id is None:
+            q = q.filter(false())
+        else:
+            q = q.filter(models.Order.user_id == current_user.id)
     if status:
         q = q.filter(models.Order.status == status)
     if date_filter is not None:
