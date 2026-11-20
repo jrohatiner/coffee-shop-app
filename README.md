@@ -29,7 +29,7 @@ PYTHONPATH=. python -m pytest -v
 ### Frontend
 ```bash
 cd frontend
-npm install --no-package-lock --no-audit --no-fund
+npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
 
 # Verify production compilation and TypeScript types (matches CI frontend-build)
 npm run build

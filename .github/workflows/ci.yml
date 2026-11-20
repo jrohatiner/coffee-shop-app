@@ -98,7 +98,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Cache npm dependencies
         uses: actions/cache@v4
@@ -123,7 +123,7 @@ jobs:
         working-directory: frontend
         run: |
           set -euo pipefail
-          npm install --no-package-lock --no-audit --no-fund
+          npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
 
       - name: Build Next.js frontend and check TypeScript types
         working-directory: frontend

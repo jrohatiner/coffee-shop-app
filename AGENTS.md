@@ -88,7 +88,7 @@ Note that `.gitignore` excludes `package-lock.json`; pass `--no-package-lock` wh
 
 ```bash
 cd frontend
-npm install --no-package-lock --no-audit --no-fund
+npm install --no-package-lock --legacy-peer-deps --no-audit --no-fund
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
