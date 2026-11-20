@@ -30,6 +30,12 @@ class ProductOut(ProductBase):
     id: int
     class Config:
         orm_mode = True
+        from_attributes = True
+
+
+class StockDeltaOut(BaseModel):
+    updated: List[ProductOut] = []
+    deleted_ids: List[int] = []
 
 # ---------- Orders ----------
 class OrderStatus(str, Enum):
