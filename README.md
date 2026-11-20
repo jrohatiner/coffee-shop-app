@@ -40,7 +40,7 @@ npm ci
 npm run typecheck
 npm run lint
 npm run format:check
-npm run build
+NEXT_PUBLIC_API_URL=/ npm run build
 npm run test:unit
 
 # Start local dev server on http://localhost:3000
@@ -73,7 +73,7 @@ Edit `frontend/package.json`, refresh `frontend/package-lock.json`, and verify a
 cd frontend
 npm install --package-lock-only
 npm ci
-npm run build
+NEXT_PUBLIC_API_URL=/ npm run build
 ```
 
-See [AGENTS.md](./AGENTS.md) for full local CI, pre-commit, and Cloud Build verification commands.
+See [AGENTS.md](./AGENTS.md) for full local CI, pre-commit, Firebase Hosting, and Cloud Build verification commands.

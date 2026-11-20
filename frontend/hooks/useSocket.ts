@@ -1,8 +1,18 @@
 import { MutableRefObject, useEffect, useRef } from 'react'
 import { io, Socket } from 'socket.io-client'
 
-const getSocketOrigin = () => {
-  const rawUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+export const getSocketOrigin = (): string | undefined => {
+  const configured =
+    process.env.NEXT_PUBLIC_SOCKET_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_URL?.trim()
+  const rawUrl =
+    configured ||
+    (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000')
+
+  if (!rawUrl || rawUrl.startsWith('/')) {
+    return undefined
+  }
+
   try {
     return new URL(rawUrl).origin
   } catch {
