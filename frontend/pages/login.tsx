@@ -21,7 +21,11 @@ export default function Login() {
       localStorage.setItem('token', res.data.access_token)
       r.push('/dashboard')
     } catch {
-      toast({ title: 'Login failed', description: 'Invalid credentials', variant: 'destructive' })
+      toast({
+        title: 'Login failed',
+        description: 'Invalid credentials',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -34,7 +38,7 @@ export default function Login() {
           name="username"
           autoComplete="username"
           value={username}
-          onChange={e => setU((e.target as HTMLInputElement).value)}
+          onChange={(e) => setU((e.target as HTMLInputElement).value)}
         />
         <Input
           label="Password"
@@ -42,7 +46,7 @@ export default function Login() {
           type="password"
           autoComplete="current-password"
           value={password}
-          onChange={e => setP((e.target as HTMLInputElement).value)}
+          onChange={(e) => setP((e.target as HTMLInputElement).value)}
         />
         <Button type="submit">Sign in</Button>
       </form>

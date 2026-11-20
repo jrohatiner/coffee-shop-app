@@ -38,7 +38,9 @@ const INITIAL_ORDERS: MockOrder[] = [
 ]
 
 function createMockJwt(): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
     JSON.stringify({
       sub: 'barista@coffeeshop.example',
@@ -48,7 +50,10 @@ function createMockJwt(): string {
   return `${header}.${payload}.mock-signature`
 }
 
-async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_ORDERS) {
+async function setupOrdersPage(
+  page: Page,
+  initialOrders: MockOrder[] = INITIAL_ORDERS
+) {
   let currentOrders = structuredClone(initialOrders)
   const token = createMockJwt()
 
@@ -61,7 +66,8 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
   })
 
   await page.route(
-    (url) => url.origin === 'http://localhost:8000' && url.pathname === '/inventory',
+    (url) =>
+      url.origin === 'http://localhost:8000' && url.pathname === '/inventory',
     async (route) => {
       await route.fulfill({
         status: 200,
@@ -72,7 +78,8 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
   )
 
   await page.route(
-    (url) => url.origin === 'http://localhost:8000' && url.pathname === '/orders',
+    (url) =>
+      url.origin === 'http://localhost:8000' && url.pathname === '/orders',
     async (route) => {
       if (route.request().method() === 'POST') {
         const body = route.request().postDataJSON()
@@ -80,13 +87,17 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
           id: 104,
           status: body.status ?? 'pending',
           created_at: '2026-11-18T10:00:00.000Z',
-          items: (body.items ?? []).map((item: { product_id: number; quantity: number }, idx: number) => ({
-            id: 10 + idx,
-            quantity: item.quantity,
-            product: {
-              name: INITIAL_PRODUCTS.find((p) => p.id === item.product_id)?.name ?? 'Item',
-            },
-          })),
+          items: (body.items ?? []).map(
+            (item: { product_id: number; quantity: number }, idx: number) => ({
+              id: 10 + idx,
+              quantity: item.quantity,
+              product: {
+                name:
+                  INITIAL_PRODUCTS.find((p) => p.id === item.product_id)
+                    ?.name ?? 'Item',
+              },
+            })
+          ),
         }
         currentOrders = [created, ...currentOrders]
         await route.fulfill({
@@ -107,7 +118,9 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
   )
 
   await page.route(
-    (url) => url.origin === 'http://localhost:8000' && /^\/orders\/\d+$/.test(url.pathname),
+    (url) =>
+      url.origin === 'http://localhost:8000' &&
+      /^\/orders\/\d+$/.test(url.pathname),
     async (route) => {
       const orderId = Number(route.request().url().split('/').pop())
       const found = currentOrders.find((o) => o.id === orderId)
@@ -128,9 +141,14 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
   )
 
   await page.route('http://localhost:8000/orders/*/cancel', async (route) => {
-    const match = route.request().url().match(/\/orders\/(\d+)\/cancel$/)
+    const match = route
+      .request()
+      .url()
+      .match(/\/orders\/(\d+)\/cancel$/)
     const orderId = match ? Number(match[1]) : -1
-    currentOrders = currentOrders.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' } : o))
+    currentOrders = currentOrders.map((o) =>
+      o.id === orderId ? { ...o, status: 'cancelled' } : o
+    )
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -139,7 +157,9 @@ async function setupOrdersPage(page: Page, initialOrders: MockOrder[] = INITIAL_
   })
 
   await page.goto('/orders')
-  await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Orders', level: 1 })
+  ).toBeVisible()
 
   return {
     setOrders: (nextOrders: MockOrder[]) => {
@@ -168,7 +188,10 @@ test.describe('Orders page OrderDetailModal accessibility & keyboard navigation'
     const labelledBy = await dialog.getAttribute('aria-labelledby')
     expect(labelledBy).toBeTruthy()
 
-    const heading = dialog.getByRole('heading', { name: 'Order #102', level: 2 })
+    const heading = dialog.getByRole('heading', {
+      name: 'Order #102',
+      level: 2,
+    })
     await expect(heading).toHaveAttribute('id', labelledBy!)
 
     const closeButton = dialog.getByRole('button', { name: 'Close' })
@@ -193,7 +216,9 @@ test.describe('Orders page OrderDetailModal accessibility & keyboard navigation'
   }) => {
     await setupOrdersPage(page)
 
-    const firstViewButton = page.locator('tbody tr', { hasText: '101' }).getByRole('button', { name: 'View' })
+    const firstViewButton = page
+      .locator('tbody tr', { hasText: '101' })
+      .getByRole('button', { name: 'View' })
     await firstViewButton.click()
 
     const dialog = page.getByRole('dialog', { name: 'Order #101' })
@@ -238,7 +263,9 @@ test.describe('Orders page OrderDetailModal accessibility & keyboard navigation'
     }
   })
 
-  test('dismisses on Escape and restores focus to the triggering View button', async ({ page }) => {
+  test('dismisses on Escape and restores focus to the triggering View button', async ({
+    page,
+  }) => {
     await setupOrdersPage(page)
 
     const row = page.locator('tbody tr', { hasText: '102' })
@@ -310,7 +337,9 @@ test.describe('Orders page OrderDetailModal accessibility & keyboard navigation'
     await expect(dialog).toHaveCount(0)
   })
 
-  test('preserves order creation and order cancellation workflows on /orders', async ({ page }) => {
+  test('preserves order creation and order cancellation workflows on /orders', async ({
+    page,
+  }) => {
     await setupOrdersPage(page)
 
     // Create a new order

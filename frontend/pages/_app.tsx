@@ -7,7 +7,7 @@ import { Toaster } from '../components/ui/toaster'
 import Navbar from '../components/Navbar'
 import { useRouter } from 'next/router'
 
-export type PageWithTitle<P = {}, IP = P> = NextPage<P, IP> & {
+export type PageWithTitle<P = object, IP = P> = NextPage<P, IP> & {
   pageTitle?: string
 }
 
