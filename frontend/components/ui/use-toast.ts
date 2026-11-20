@@ -42,14 +42,20 @@ let toastsState: ToastItem[] = []
 let idCounter = 0
 const listeners = new Set<() => void>()
 const timers = new Map<string, TimerRecord>()
-const lastDefaultEmitByKey = new Map<string, { timestamp: number; id: string }>()
+const lastDefaultEmitByKey = new Map<
+  string,
+  { timestamp: number; id: string }
+>()
 
 const emitChange = () => {
   listeners.forEach((listener) => listener())
 }
 
-const makeDedupeKey = (variant: ToastVariant, title: string, description?: string) =>
-  `${variant}::${title.trim()}::${(description ?? '').trim()}`
+const makeDedupeKey = (
+  variant: ToastVariant,
+  title: string,
+  description?: string
+) => `${variant}::${title.trim()}::${(description ?? '').trim()}`
 
 const scheduleTimer = (id: string, record: TimerRecord) => {
   if (record.timeoutId !== null) {
@@ -67,7 +73,14 @@ const scheduleTimer = (id: string, record: TimerRecord) => {
   const timeout = setTimeout(() => {
     dismissToast(id)
   }, record.remainingMs)
-  ;(timeout as any)?.unref?.()
+  if (
+    typeof timeout === 'object' &&
+    timeout !== null &&
+    'unref' in timeout &&
+    typeof timeout.unref === 'function'
+  ) {
+    timeout.unref()
+  }
   record.timeoutId = timeout
 }
 
@@ -124,7 +137,9 @@ export const pauseToast = (id: string, reason: PauseReason = 'manual') => {
     const elapsed = Math.max(0, Date.now() - record.startedAt)
     record.remainingMs = Math.max(0, record.remainingMs - elapsed)
     toastsState = toastsState.map((item) =>
-      item.id === id ? { ...item, paused: true, remainingMs: record.remainingMs } : item
+      item.id === id
+        ? { ...item, paused: true, remainingMs: record.remainingMs }
+        : item
     )
     emitChange()
   }
@@ -146,7 +161,9 @@ export const resumeToast = (id: string, reason?: PauseReason) => {
       return
     }
     toastsState = toastsState.map((item) =>
-      item.id === id ? { ...item, paused: false, remainingMs: record.remainingMs } : item
+      item.id === id
+        ? { ...item, paused: false, remainingMs: record.remainingMs }
+        : item
     )
     scheduleTimer(id, record)
     emitChange()
@@ -173,7 +190,10 @@ export const toast = ({
 }: ToastInput) => {
   const now = Date.now()
   const resolvedDuration =
-    duration ?? (variant === 'destructive' ? DESTRUCTIVE_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS)
+    duration ??
+    (variant === 'destructive'
+      ? DESTRUCTIVE_TOAST_DURATION_MS
+      : DEFAULT_TOAST_DURATION_MS)
   const dedupeKey = makeDedupeKey(variant, title, description)
 
   if (variant === 'default') {
@@ -239,7 +259,11 @@ export const toast = ({
 }
 
 export const useToast = () => {
-  const toasts = useSyncExternalStore(subscribeToasts, getToastsSnapshot, getServerToastsSnapshot)
+  const toasts = useSyncExternalStore(
+    subscribeToasts,
+    getToastsSnapshot,
+    getServerToastsSnapshot
+  )
   return {
     toasts,
     toast,

@@ -60,7 +60,11 @@ describe('use-toast reactive store', () => {
     mock.timers.enable({ apis: ['Date', 'setTimeout'] })
 
     toast({ title: 'Saved', description: 'Latte' })
-    toast({ title: 'Error', description: 'Manager only', variant: 'destructive' })
+    toast({
+      title: 'Error',
+      description: 'Manager only',
+      variant: 'destructive',
+    })
     assert.equal(getToastsSnapshot().length, 2)
 
     mock.timers.tick(DEFAULT_TOAST_DURATION_MS - 1)
@@ -71,7 +75,9 @@ describe('use-toast reactive store', () => {
     assert.equal(remaining.length, 1)
     assert.equal(remaining[0].variant, 'destructive')
 
-    mock.timers.tick(DESTRUCTIVE_TOAST_DURATION_MS - DEFAULT_TOAST_DURATION_MS - 1)
+    mock.timers.tick(
+      DESTRUCTIVE_TOAST_DURATION_MS - DEFAULT_TOAST_DURATION_MS - 1
+    )
     assert.equal(getToastsSnapshot().length, 1)
 
     mock.timers.tick(1)
@@ -114,7 +120,11 @@ describe('use-toast reactive store', () => {
   it('supports dismissing a single toast by id or all active toasts at once', () => {
     const a = toast({ title: 'New Order' })
     toast({ title: 'Inventory Changed' })
-    toast({ title: 'Error', description: 'Failed to save', variant: 'destructive' })
+    toast({
+      title: 'Error',
+      description: 'Failed to save',
+      variant: 'destructive',
+    })
     assert.equal(getToastsSnapshot().length, 3)
 
     dismissToast(a.id)
@@ -140,7 +150,8 @@ describe('use-toast reactive store', () => {
     toast({ title: 'Name required', variant: 'destructive' })
     toast({ title: 'Name required', variant: 'destructive' })
     assert.equal(
-      getToastsSnapshot().filter((item) => item.variant === 'destructive').length,
+      getToastsSnapshot().filter((item) => item.variant === 'destructive')
+        .length,
       2
     )
 
@@ -148,7 +159,8 @@ describe('use-toast reactive store', () => {
     mock.timers.tick(DEDUPE_WINDOW_MS + 10)
     toast({ title: 'Inventory Changed' })
     assert.equal(
-      getToastsSnapshot().filter((item) => item.title === 'Inventory Changed').length,
+      getToastsSnapshot().filter((item) => item.title === 'Inventory Changed')
+        .length,
       2
     )
   })
@@ -168,7 +180,11 @@ describe('Toaster and Input accessibility primitives', () => {
 
   it('routes destructive toasts to role="alert" and default toasts to role="status" with labeled close buttons', () => {
     toast({ title: 'Order created', description: 'Table 4' })
-    toast({ title: 'Login failed', description: 'Invalid credentials', variant: 'destructive' })
+    toast({
+      title: 'Login failed',
+      description: 'Invalid credentials',
+      variant: 'destructive',
+    })
 
     const html = renderToStaticMarkup(
       React.createElement(ToasterView, {
@@ -188,12 +204,18 @@ describe('Toaster and Input accessibility primitives', () => {
     assert.match(alertRegionHtml, /Login failed/)
     assert.match(alertRegionHtml, /Invalid credentials/)
     assert.doesNotMatch(alertRegionHtml, /Order created/)
-    assert.match(alertRegionHtml, /aria-label="Dismiss Login failed notification"/)
+    assert.match(
+      alertRegionHtml,
+      /aria-label="Dismiss Login failed notification"/
+    )
 
     assert.match(statusRegionHtml, /Order created/)
     assert.match(statusRegionHtml, /Table 4/)
     assert.doesNotMatch(statusRegionHtml, /Login failed/)
-    assert.match(statusRegionHtml, /aria-label="Dismiss Order created notification"/)
+    assert.match(
+      statusRegionHtml,
+      /aria-label="Dismiss Order created notification"/
+    )
   })
 
   it('wires aria-invalid, aria-describedby, and inline error text in Input', () => {
@@ -207,6 +229,9 @@ describe('Toaster and Input accessibility primitives', () => {
     assert.match(html, /for="username-field"/)
     assert.match(html, /aria-invalid="true"/)
     assert.match(html, /aria-describedby="username-field-error"/)
-    assert.match(html, /id="username-field-error"[^>]*>.*Username is required\./)
+    assert.match(
+      html,
+      /id="username-field-error"[^>]*>.*Username is required\./
+    )
   })
 })

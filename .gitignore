@@ -25,6 +25,7 @@ build/
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 npm-debug.log
 yarn-error.log
 package-lock.json

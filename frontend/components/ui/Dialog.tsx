@@ -50,7 +50,9 @@ export const Dialog = ({
 
   if (!open) return null
 
-  const handleCancel = (event: React.SyntheticEvent<HTMLDialogElement, Event>) => {
+  const handleCancel = (
+    event: React.SyntheticEvent<HTMLDialogElement, Event>
+  ) => {
     event.preventDefault()
     if (!event.defaultPrevented) {
       pendingCloseFromCancelRef.current = true
