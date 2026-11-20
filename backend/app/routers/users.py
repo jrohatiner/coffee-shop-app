@@ -1,21 +1,25 @@
-from typing import List
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import models, schemas, auth
-from app.database import get_db
+from app import auth, models, schemas
 from app.auth import get_password_hash
+from app.database import get_db
 
 router = APIRouter()
+
+DbSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[models.User, Depends(auth.get_current_user)]
+
 
 @router.post("/", response_model=schemas.UserOut)
 def create_user(
     user: schemas.UserCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(auth.get_current_user),
-):
+    db: DbSession,
+    current_user: CurrentUser,
+) -> models.User:
     try:
         if not current_user.is_manager:
             raise HTTPException(403, "Only managers can create users")
@@ -29,35 +33,37 @@ def create_user(
     u = models.User(
         username=user.username,
         hashed_password=hashed_password,
-        is_manager=user.is_manager,
+        is_manager=bool(user.is_manager),
     )
     try:
         db.add(u)
         db.commit()
         db.refresh(u)
         db.expunge(u)
-    except IntegrityError:
+    except IntegrityError as err:
         db.rollback()
-        raise HTTPException(400, "Username already exists")
+        raise HTTPException(400, "Username already exists") from err
     finally:
         db.close()
     return u
 
-@router.get("/", response_model=List[schemas.UserOut])
+
+@router.get("/", response_model=list[schemas.UserOut])
 def list_users(
-    db: Session = Depends(get_db),
-    current_user=Depends(auth.get_current_user),
-):
+    db: DbSession,
+    current_user: CurrentUser,
+) -> list[models.User]:
     if not current_user.is_manager:
         raise HTTPException(403, "Only managers can view users")
     return db.query(models.User).all()
 
+
 @router.delete("/{user_id}")
 def delete_user(
     user_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(auth.get_current_user),
-):
+    db: DbSession,
+    current_user: CurrentUser,
+) -> dict[str, str]:
     if not current_user.is_manager:
         raise HTTPException(403, "Only managers can delete users")
 

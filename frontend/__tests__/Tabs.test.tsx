@@ -1,12 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import React, { useState } from 'react'
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from '../components/ui/Tabs'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs'
 import { render, fireClick, fireKeyDown } from './test-dom'
 
 type ReportTab = 'daily' | 'weekly' | 'monthly'

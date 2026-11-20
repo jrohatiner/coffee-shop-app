@@ -1,6 +1,6 @@
 import os
 import tempfile
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from unittest.mock import patch
 
 # Point app.database at an isolated temp SQLite database during standalone import
@@ -9,17 +9,28 @@ _IMPORT_DB.close()
 os.environ.setdefault("JWT_SECRET", "super-secret-test-key-for-auth-tests")
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_IMPORT_DB.name}")
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import Column, Index, Integer, MetaData, String, Table, create_engine, event, inspect, text
-from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.schema import CreateIndex
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import (  # noqa: E402
+    Column,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    event,
+    inspect,
+    text,
+)
+from sqlalchemy.dialects import postgresql, sqlite  # noqa: E402
+from sqlalchemy.exc import IntegrityError  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.schema import CreateIndex  # noqa: E402
 
-from app import auth, models
-from app.database import Base, get_db
-from app.main import app, ensure_indexes
+from app import auth, models  # noqa: E402
+from app.database import Base, get_db  # noqa: E402
+from app.main import app, ensure_indexes  # noqa: E402
 
 
 def teardown_module(module):
@@ -64,7 +75,21 @@ def db_env(tmp_path):
         engine.dispose()
 
 
-def _auth_headers(username: str) -> dict:
+def _naive_utc(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0,
+    second: int = 0,
+    microsecond: int = 0,
+) -> datetime:
+    return datetime(
+        year, month, day, hour, minute, second, microsecond, tzinfo=UTC
+    ).replace(tzinfo=None)
+
+
+def _auth_headers(username: str) -> dict[str, str]:
     token = auth.create_access_token({"sub": username})
     return {"Authorization": f"Bearer {token}"}
 
@@ -266,15 +291,13 @@ def test_warm_startup_and_ensure_indexes_use_single_checkout_and_batched_reflect
     def _record_statement(_conn, _cursor, statement, _params, _context, _executemany):
         statements.append(statement)
 
-    # 1. Standalone ensure_indexes(bind_engine=Engine) -> 1 checkout, 19 reflection queries
+    # 1. Standalone ensure_indexes(bind_engine=Engine) -> 1 checkout, 19 queries
     ensure_indexes(bind_engine=warm_engine)
     assert len(checkouts) == 1
     assert len(statements) == 19
-    assert not any(
-        stmt.lstrip().upper().startswith("CREATE") for stmt in statements
-    )
+    assert not any(stmt.lstrip().upper().startswith("CREATE") for stmt in statements)
 
-    # 2. Shared startup transaction (create_all + ensure_indexes on Connection) -> 1 checkout
+    # 2. Shared startup transaction (create_all + ensure_indexes) -> 1 checkout
     checkouts.clear()
     statements.clear()
     with warm_engine.begin() as conn:
@@ -283,9 +306,7 @@ def test_warm_startup_and_ensure_indexes_use_single_checkout_and_batched_reflect
 
     assert len(checkouts) == 1
     assert len(statements) == 24
-    assert not any(
-        stmt.lstrip().upper().startswith("CREATE") for stmt in statements
-    )
+    assert not any(stmt.lstrip().upper().startswith("CREATE") for stmt in statements)
 
     warm_engine.dispose()
 
@@ -328,7 +349,8 @@ def test_ensure_indexes_handles_missing_tables_unnamed_and_duplicate_indexes(tmp
     with empty_engine.begin() as conn:
         conn.execute(
             text(
-                "CREATE TABLE sample_items (id INTEGER PRIMARY KEY, code VARCHAR, label VARCHAR)"
+                "CREATE TABLE sample_items "
+                "(id INTEGER PRIMARY KEY, code VARCHAR, label VARCHAR)"
             )
         )
 
@@ -340,9 +362,7 @@ def test_ensure_indexes_handles_missing_tables_unnamed_and_duplicate_indexes(tmp
 
     assert len(checkouts) == 1
     create_index_stmts = [
-        stmt
-        for stmt in statements
-        if stmt.lstrip().upper().startswith("CREATE INDEX")
+        stmt for stmt in statements if stmt.lstrip().upper().startswith("CREATE INDEX")
     ]
     assert len(create_index_stmts) == 2
 
@@ -379,24 +399,20 @@ def test_orders_date_filter_utc_boundaries_and_combined_status(db_env):
         db.refresh(latte)
 
         timestamps_and_statuses = [
-            ("prev_day_end", datetime(2026, 11, 17, 23, 59, 59, 999999), "pending"),
-            ("day_start", datetime(2026, 11, 18, 0, 0, 0, 0), "pending"),
-            ("day_mid_completed", datetime(2026, 11, 18, 12, 30, 0, 0), "completed"),
-            ("day_end", datetime(2026, 11, 18, 23, 59, 59, 999999), "pending"),
-            ("next_day_start", datetime(2026, 11, 19, 0, 0, 0, 0), "pending"),
-            ("leap_day", datetime(2024, 2, 29, 23, 59, 59, 0), "completed"),
-            ("after_leap_day", datetime(2024, 3, 1, 0, 0, 0, 0), "completed"),
+            ("prev_day_end", _naive_utc(2026, 11, 17, 23, 59, 59, 999999), "pending"),
+            ("day_start", _naive_utc(2026, 11, 18, 0, 0, 0, 0), "pending"),
+            ("day_mid_completed", _naive_utc(2026, 11, 18, 12, 30, 0, 0), "completed"),
+            ("day_end", _naive_utc(2026, 11, 18, 23, 59, 59, 999999), "pending"),
+            ("next_day_start", _naive_utc(2026, 11, 19, 0, 0, 0, 0), "pending"),
+            ("leap_day", _naive_utc(2024, 2, 29, 23, 59, 59, 0), "completed"),
+            ("after_leap_day", _naive_utc(2024, 3, 1, 0, 0, 0, 0), "completed"),
         ]
         label_to_id = {}
         for label, ts, st in timestamps_and_statuses:
             order = models.Order(user_id=mgr.id, status=st, created_at=ts)
             db.add(order)
             db.flush()
-            db.add(
-                models.OrderItem(
-                    order_id=order.id, product_id=latte.id, quantity=2
-                )
-            )
+            db.add(models.OrderItem(order_id=order.id, product_id=latte.id, quantity=2))
             label_to_id[label] = order.id
         db.commit()
     finally:
@@ -414,12 +430,16 @@ def test_orders_date_filter_utc_boundaries_and_combined_status(db_env):
         label_to_id["day_end"],
     }
 
-    # Verify OrderOut response schema preservation
+    # Verify OrderSummaryOut list response and OrderOut detail schema preservation
     sample = resp_date.json()[0]
-    assert set(sample.keys()) == {"id", "user_id", "status", "created_at", "items"}
-    assert len(sample["items"]) == 1
-    assert set(sample["items"][0].keys()) == {"id", "product_id", "quantity", "product"}
-    assert set(sample["items"][0]["product"].keys()) == {"id", "name", "price", "stock"}
+    assert set(sample.keys()) == {"id", "status", "created_at"}
+    detail_resp = client.get(f"/orders/{sample['id']}", headers=headers)
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert set(detail.keys()) == {"id", "user_id", "status", "created_at", "items"}
+    assert len(detail["items"]) == 1
+    assert set(detail["items"][0].keys()) == {"id", "product_id", "quantity", "product"}
+    assert set(detail["items"][0]["product"].keys()) == {"id", "name", "price", "stock"}
 
     # 2. Combined status + date_filter
     resp_combo = client.get(
@@ -489,9 +509,14 @@ def test_explain_query_plan_uses_indexes_across_all_five_routers(db_env):
                 .limit(1)
             ),
             "reports_by_type": (
-                db.query(models.SalesReport).filter(
-                    models.SalesReport.report_type == "daily"
+                db.query(models.SalesReport)
+                .filter(models.SalesReport.report_type == "daily")
+                .order_by(
+                    models.SalesReport.created_at.desc(),
+                    models.SalesReport.id.desc(),
                 )
+                .offset(0)
+                .limit(21)
             ),
             "users_fk_orders_by_user_id": (
                 db.query(models.Order.id).filter(models.Order.user_id == 1)
@@ -562,15 +587,11 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
             o = models.Order(
                 user_id=staff_with_orders.id,
                 status="completed",
-                created_at=datetime(2026, 11, 1, 8, 0, 0) + timedelta(hours=i),
+                created_at=_naive_utc(2026, 11, 1, 8, 0, 0) + timedelta(hours=i),
             )
             db.add(o)
             db.flush()
-            db.add(
-                models.OrderItem(
-                    order_id=o.id, product_id=used_prod.id, quantity=1
-                )
-            )
+            db.add(models.OrderItem(order_id=o.id, product_id=used_prod.id, quantity=1))
 
         db.add_all(
             [
@@ -606,6 +627,7 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
     ]:
         rep = client.get(f"/reports/{rtype}", headers=headers)
         assert rep.status_code == 200
+        assert rep.headers.get("X-Has-More") == "false"
         items = rep.json()
         assert len(items) == 1
         assert items[0]["report_type"] == rtype
@@ -617,7 +639,7 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
             "created_at",
         }
 
-    # Inventory blocks deleting products referenced by orders, allows deleting unused products
+    # Inventory blocks deleting products in orders, allows deleting unused products
     del_used = client.delete(f"/inventory/{used_prod_id}", headers=headers)
     assert del_used.status_code == 400
     assert "existing orders" in del_used.json()["detail"]
@@ -633,3 +655,183 @@ def test_all_routers_preserve_contracts_and_foreign_keys(db_env):
 
     with pytest.raises(IntegrityError):
         client.delete(f"/users/{staff_with_orders_id}", headers=headers)
+
+
+def test_reports_pagination_ordering_has_more_and_exact_multiples(db_env):
+    engine, SessionLocal, client = db_env
+    db = SessionLocal()
+    try:
+        mgr = models.User(
+            username="reports_mgr",
+            hashed_password=auth.get_password_hash("pw"),
+            is_manager=True,
+        )
+        db.add(mgr)
+        db.commit()
+    finally:
+        db.close()
+
+    headers = _auth_headers("reports_mgr")
+
+    # Empty tables return [] with X-Has-More: false
+    for rtype in ("daily", "weekly", "monthly"):
+        empty_resp = client.get(f"/reports/{rtype}", headers=headers)
+        assert empty_resp.status_code == 200
+        assert empty_resp.json() == []
+        assert empty_resp.headers.get("X-Has-More") == "false"
+
+    # Seed 45 daily reports (with duplicate created_at timestamps to test id DESC
+    # tie-breaking), 20 weekly reports (exact multiple of default limit=20), and
+    # 5 monthly reports.
+    base_dt = _naive_utc(2026, 1, 1, 12, 0, 0)
+    db = SessionLocal()
+    try:
+        expected_daily_ids = []
+        daily_records = []
+        for i in range(45):
+            # Pair indices (42, 43) share the exact same created_at timestamp
+            day_offset = 42 if i in (42, 43) else i
+            rec = models.SalesReport(
+                report_type="daily",
+                total_sales=round(100.0 + i, 2),
+                created_at=base_dt + timedelta(days=day_offset),
+            )
+            db.add(rec)
+            db.flush()
+            daily_records.append((rec.created_at, rec.id))
+
+        expected_daily_ids = [
+            rid
+            for _dt, rid in sorted(
+                daily_records, key=lambda pair: (pair[0], pair[1]), reverse=True
+            )
+        ]
+
+        for i in range(20):
+            db.add(
+                models.SalesReport(
+                    report_type="weekly",
+                    total_sales=round(500.0 + i * 10, 2),
+                    created_at=base_dt + timedelta(weeks=i),
+                )
+            )
+
+        for i in range(5):
+            db.add(
+                models.SalesReport(
+                    report_type="monthly",
+                    total_sales=round(2000.0 + i * 100, 2),
+                    created_at=base_dt + timedelta(days=30 * i),
+                )
+            )
+        db.commit()
+
+        # Verify EXPLAIN QUERY PLAN for paginated non-zero offset report queries
+        # across report types
+        with engine.connect() as conn:
+            for rtype in ("daily", "weekly", "monthly"):
+                q = (
+                    db.query(models.SalesReport)
+                    .filter(models.SalesReport.report_type == rtype)
+                    .order_by(
+                        models.SalesReport.created_at.desc(),
+                        models.SalesReport.id.desc(),
+                    )
+                    .offset(20)
+                    .limit(21)
+                )
+                compiled = q.statement.compile(
+                    dialect=sqlite.dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+                plan_rows = conn.execute(
+                    text(f"EXPLAIN QUERY PLAN {compiled}")
+                ).fetchall()
+                details = " | ".join(str(row[-1]) for row in plan_rows)
+                assert "ix_sales_reports_report_type_created_at" in details
+                assert "TEMP B-TREE" not in details
+    finally:
+        db.close()
+
+    # Daily page 1 (default limit=20, offset=0) -> 20 items, X-Has-More: true
+    p1 = client.get("/reports/daily", headers=headers)
+    assert p1.status_code == 200
+    assert p1.headers.get("X-Has-More") == "true"
+    p1_items = p1.json()
+    assert len(p1_items) == 20
+    assert [r["id"] for r in p1_items] == expected_daily_ids[:20]
+
+    # Verify identical created_at tie-break orders higher id first
+    tied_slice = [r for r in p1_items if r["created_at"].startswith("2026-02-12")]
+    assert len(tied_slice) == 2
+    assert tied_slice[0]["id"] > tied_slice[1]["id"]
+
+    # Daily page 2 (limit=20, offset=20) -> 20 items, X-Has-More: true
+    p2 = client.get("/reports/daily?limit=20&offset=20", headers=headers)
+    assert p2.status_code == 200
+    assert p2.headers.get("X-Has-More") == "true"
+    p2_items = p2.json()
+    assert len(p2_items) == 20
+    assert [r["id"] for r in p2_items] == expected_daily_ids[20:40]
+
+    # Daily page 3 (limit=20, offset=40) -> 5 items, X-Has-More: false
+    p3 = client.get("/reports/daily?limit=20&offset=40", headers=headers)
+    assert p3.status_code == 200
+    assert p3.headers.get("X-Has-More") == "false"
+    p3_items = p3.json()
+    assert len(p3_items) == 5
+    assert [r["id"] for r in p3_items] == expected_daily_ids[40:]
+
+    # Exact multiple of limit (20 weekly rows with default limit=20) ->
+    # X-Has-More: false
+    weekly_default = client.get("/reports/weekly", headers=headers)
+    assert weekly_default.status_code == 200
+    assert len(weekly_default.json()) == 20
+    assert weekly_default.headers.get("X-Has-More") == "false"
+
+    # Custom limit=5 across weekly rows
+    weekly_slice = client.get("/reports/weekly?limit=5&offset=0", headers=headers)
+    assert weekly_slice.status_code == 200
+    assert len(weekly_slice.json()) == 5
+    assert weekly_slice.headers.get("X-Has-More") == "true"
+
+    weekly_last = client.get("/reports/weekly?limit=5&offset=15", headers=headers)
+    assert weekly_last.status_code == 200
+    assert len(weekly_last.json()) == 5
+    assert weekly_last.headers.get("X-Has-More") == "false"
+
+    # Monthly with max limit=100
+    monthly_max = client.get("/reports/monthly?limit=100&offset=0", headers=headers)
+    assert monthly_max.status_code == 200
+    assert len(monthly_max.json()) == 5
+    assert monthly_max.headers.get("X-Has-More") == "false"
+
+
+def test_reports_pagination_bounds_return_422(db_env):
+    _, SessionLocal, client = db_env
+    db = SessionLocal()
+    try:
+        mgr = models.User(
+            username="bounds_mgr",
+            hashed_password=auth.get_password_hash("pw"),
+            is_manager=True,
+        )
+        db.add(mgr)
+        db.commit()
+    finally:
+        db.close()
+
+    headers = _auth_headers("bounds_mgr")
+
+    for rtype in ("daily", "weekly", "monthly"):
+        for invalid_query in (
+            "limit=0",
+            "limit=-1",
+            "limit=101",
+            "offset=-1",
+        ):
+            resp = client.get(f"/reports/{rtype}?{invalid_query}", headers=headers)
+            assert resp.status_code == 422, (
+                f"Expected 422 for /reports/{rtype}?{invalid_query}, "
+                f"got {resp.status_code}"
+            )

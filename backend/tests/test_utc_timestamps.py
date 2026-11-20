@@ -1,10 +1,10 @@
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
 import warnings
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 from jose import jwt
 from sqlalchemy import create_engine
@@ -24,7 +24,7 @@ from app.database import Base  # noqa: E402
 
 
 def test_token_issuance_and_model_creation_under_deprecation_error():
-    """Execute token issuance and model creation under python3 -W error::DeprecationWarning."""
+    """Run token issuance and model creation under -W error::DeprecationWarning."""
     script = """
 import os
 import sys
@@ -41,16 +41,26 @@ from app import models
 from app.database import Base
 
 with warnings.catch_warnings():
-    warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"passlib\\..*")
-    warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"app\\.schemas")
+    warnings.filterwarnings(
+        "ignore", category=DeprecationWarning, module=r"passlib\\..*"
+    )
+    warnings.filterwarnings(
+        "ignore", category=DeprecationWarning, module=r"app\\.schemas"
+    )
     from app import auth
 
 # Active -W error::DeprecationWarning applies to all runtime calls below
 token_default = auth.create_access_token({"sub": "manager"})
-token_custom = auth.create_access_token({"sub": "staff"}, expires_delta=timedelta(minutes=15))
+token_custom = auth.create_access_token(
+    {"sub": "staff"}, expires_delta=timedelta(minutes=15)
+)
 
-decoded_default = jwt.decode(token_default, auth.get_jwt_secret(), algorithms=[auth.ALGORITHM])
-decoded_custom = jwt.decode(token_custom, auth.get_jwt_secret(), algorithms=[auth.ALGORITHM])
+decoded_default = jwt.decode(
+    token_default, auth.get_jwt_secret(), algorithms=[auth.ALGORITHM]
+)
+decoded_custom = jwt.decode(
+    token_custom, auth.get_jwt_secret(), algorithms=[auth.ALGORITHM]
+)
 assert decoded_default["sub"] == "manager"
 assert decoded_custom["sub"] == "staff"
 
@@ -90,7 +100,7 @@ finally:
 
 
 def test_jwt_access_token_epoch_conversion_without_offset_drift():
-    """Verify JWT serializers convert timezone-aware timestamps into standard Unix epoch values."""
+    """Verify JWT serializers convert UTC timestamps into standard Unix epochs."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
         before_epoch = int(time.time())
@@ -130,7 +140,7 @@ def test_jwt_access_token_epoch_conversion_without_offset_drift():
 
 
 def test_order_and_sales_report_persist_timezone_aware_utc_accurately():
-    """Ensure SQLAlchemy defaults and timezone-aware timestamps round-trip as UTC without drift."""
+    """Ensure SQLAlchemy defaults and UTC timestamps round-trip without drift."""
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -138,15 +148,15 @@ def test_order_and_sales_report_persist_timezone_aware_utc_accurately():
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
-            before_utc = datetime.now(timezone.utc)
+            before_utc = datetime.now(UTC)
             order = models.Order(user_id=None, status="pending")
             report = models.SalesReport(report_type="weekly", total_sales=540.25)
             db.add_all([order, report])
             db.flush()
-            after_utc = datetime.now(timezone.utc)
+            after_utc = datetime.now(UTC)
 
-            assert order.created_at.tzinfo == timezone.utc
-            assert report.created_at.tzinfo == timezone.utc
+            assert order.created_at.tzinfo == UTC
+            assert report.created_at.tzinfo == UTC
             assert before_utc <= order.created_at <= after_utc
             assert before_utc <= report.created_at <= after_utc
 
@@ -171,15 +181,17 @@ def test_order_and_sales_report_persist_timezone_aware_utc_accurately():
         db.expire_all()
         reloaded_order = db.query(models.Order).filter_by(id=order_id).one()
         reloaded_report = db.query(models.SalesReport).filter_by(id=report_id).one()
-        reloaded_offset_order = db.query(models.Order).filter_by(id=offset_order_id).one()
+        reloaded_offset_order = (
+            db.query(models.Order).filter_by(id=offset_order_id).one()
+        )
 
-        assert reloaded_order.created_at.tzinfo == timezone.utc
-        assert reloaded_report.created_at.tzinfo == timezone.utc
+        assert reloaded_order.created_at.tzinfo == UTC
+        assert reloaded_report.created_at.tzinfo == UTC
         assert reloaded_order.created_at == flushed_order_ts
         assert reloaded_report.created_at == flushed_report_ts
 
-        expected_utc = datetime(2026, 11, 20, 17, 15, 30, 123456, tzinfo=timezone.utc)
-        assert reloaded_offset_order.created_at.tzinfo == timezone.utc
+        expected_utc = datetime(2026, 11, 20, 17, 15, 30, 123456, tzinfo=UTC)
+        assert reloaded_offset_order.created_at.tzinfo == UTC
         assert reloaded_offset_order.created_at == expected_utc
     finally:
         db.close()
@@ -188,18 +200,14 @@ def test_order_and_sales_report_persist_timezone_aware_utc_accurately():
 
 def test_database_schema_column_types_remain_unchanged():
     """Ensure SQL column DDL types remain DATETIME / TIMESTAMP WITHOUT TIME ZONE."""
-    pg_orders_ddl = str(
-        CreateTable(models.Order.__table__).compile(dialect=postgresql.dialect())
-    )
+    orders_table = Base.metadata.tables["orders"]
+    reports_table = Base.metadata.tables["sales_reports"]
+    pg_orders_ddl = str(CreateTable(orders_table).compile(dialect=postgresql.dialect()))
     pg_reports_ddl = str(
-        CreateTable(models.SalesReport.__table__).compile(dialect=postgresql.dialect())
+        CreateTable(reports_table).compile(dialect=postgresql.dialect())
     )
-    sq_orders_ddl = str(
-        CreateTable(models.Order.__table__).compile(dialect=sqlite.dialect())
-    )
-    sq_reports_ddl = str(
-        CreateTable(models.SalesReport.__table__).compile(dialect=sqlite.dialect())
-    )
+    sq_orders_ddl = str(CreateTable(orders_table).compile(dialect=sqlite.dialect()))
+    sq_reports_ddl = str(CreateTable(reports_table).compile(dialect=sqlite.dialect()))
 
     assert "created_at TIMESTAMP WITHOUT TIME ZONE" in pg_orders_ddl
     assert "created_at TIMESTAMP WITHOUT TIME ZONE" in pg_reports_ddl

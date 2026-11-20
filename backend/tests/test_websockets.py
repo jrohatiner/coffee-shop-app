@@ -1,11 +1,12 @@
 import asyncio
 import json
 import os
-from pathlib import Path
 import socket
 import sys
 import threading
 import time
+from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -138,7 +139,9 @@ def test_engineio_polling_to_websocket_upgrade_and_live_broadcasts(live_server):
                     data={"username": "manager", "password": "manager123"},
                 )
                 assert token_res.status_code == 200
-                headers = {"Authorization": f"Bearer {token_res.json()['access_token']}"}
+                headers = {
+                    "Authorization": f"Bearer {token_res.json()['access_token']}"
+                }
 
                 prod_res = await http_client.post(
                     "/inventory/",
@@ -186,13 +189,13 @@ def test_engineio_polling_to_websocket_upgrade_and_live_broadcasts(live_server):
                 )
                 assert cancel_res.status_code == 200
 
-                events = []
+                events: list[Any] = []
                 deadline = time.monotonic() + 3.0
                 while len(events) < 8 and time.monotonic() < deadline:
                     raw = await asyncio.wait_for(ws.recv(), timeout=2)
                     if raw == "2":
                         await ws.send("3")
-                    elif raw.startswith("42"):
+                    elif isinstance(raw, str) and raw.startswith("42"):
                         events.append(json.loads(raw[2:]))
 
                 event_names = [e[0] for e in events]

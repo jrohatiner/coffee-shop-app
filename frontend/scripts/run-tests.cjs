@@ -19,7 +19,10 @@ const compileTs = (mod, filename) => {
 
 const originalResolveFilename = Module._resolveFilename
 Module._resolveFilename = function (request, parent, isMain, options) {
-  if ((request.startsWith('./') || request.startsWith('../')) && parent?.filename) {
+  if (
+    (request.startsWith('./') || request.startsWith('../')) &&
+    parent?.filename
+  ) {
     const baseDir = path.dirname(parent.filename)
     const candidateBase = path.resolve(baseDir, request)
     for (const ext of ['.ts', '.tsx']) {

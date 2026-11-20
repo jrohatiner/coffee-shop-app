@@ -1,7 +1,9 @@
 from app import auth, models
 
 
-def _create_user(db_session, username: str, password: str = "secret123", is_manager: bool = False) -> models.User:
+def _create_user(
+    db_session, username: str, password: str = "secret123", is_manager: bool = False
+) -> models.User:
     user = models.User(
         username=username,
         hashed_password=auth.get_password_hash(password),
@@ -13,13 +15,17 @@ def _create_user(db_session, username: str, password: str = "secret123", is_mana
     return user
 
 
-def _auth_headers(user: models.User) -> dict:
+def _auth_headers(user: models.User) -> dict[str, str]:
     token = auth.create_access_token({"sub": user.username})
     return {"Authorization": f"Bearer {token}"}
 
 
 def _create_order_for_user(db_session, user: models.User) -> models.Order:
-    product = db_session.query(models.Product).filter(models.Product.name == "Espresso").first()
+    product = (
+        db_session.query(models.Product)
+        .filter(models.Product.name == "Espresso")
+        .first()
+    )
     if not product:
         product = models.Product(name="Espresso", price=3.5, stock=20)
         db_session.add(product)
