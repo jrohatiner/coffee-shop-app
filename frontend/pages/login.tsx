@@ -7,12 +7,16 @@ import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import FormErrorBanner from '../components/ui/FormErrorBanner'
 import { toast } from '../components/ui/use-toast'
+import type { Token } from '../types/api'
 
 export default function Login() {
   const r = useRouter()
   const [username, setU] = useState('')
   const [password, setP] = useState('')
-  const [errors, setErrors] = useState<{ username?: string; password?: string }>({})
+  const [errors, setErrors] = useState<{
+    username?: string
+    password?: string
+  }>({})
   const [formError, setFormError] = useState<string | null>(null)
 
   const submit = async (e?: React.FormEvent) => {
@@ -20,7 +24,7 @@ export default function Login() {
     setFormError(null)
     try {
       const form = new URLSearchParams({ username, password })
-      const res = await api.post('/auth/token', form, {
+      const res = await api.post<Token>('/auth/token', form, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       })
       setErrors({})
@@ -66,7 +70,9 @@ export default function Login() {
             const val = (e.target as HTMLInputElement).value
             setU(val)
             if (val.trim()) {
-              setErrors((prev) => (prev.username ? { ...prev, username: undefined } : prev))
+              setErrors((prev) =>
+                prev.username ? { ...prev, username: undefined } : prev
+              )
             }
           }}
         />
@@ -85,7 +91,9 @@ export default function Login() {
             const val = (e.target as HTMLInputElement).value
             setP(val)
             if (val.trim()) {
-              setErrors((prev) => (prev.password ? { ...prev, password: undefined } : prev))
+              setErrors((prev) =>
+                prev.password ? { ...prev, password: undefined } : prev
+              )
             }
           }}
         />

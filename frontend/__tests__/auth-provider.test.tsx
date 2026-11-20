@@ -25,7 +25,9 @@ const routerModule = requireModule('next/router')
 const socketIoModule = requireModule('socket.io-client')
 
 function makeJwt(sub = 'manager@coffee.test', expOffsetSeconds = 3600): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
     JSON.stringify({
       sub,
@@ -185,7 +187,7 @@ describe('AuthProvider and cached token store', () => {
       </AuthProvider>
     )
     assert.equal(renderer.toJSON(), null)
-    assert.deepEqual(renderSnapshots, [null])
+    assert.deepEqual<Array<Decoded | null>>(renderSnapshots, [null])
 
     // Flushing passive mount effects completes AuthProvider hydration and restores user
     await act(async () => {
@@ -193,7 +195,10 @@ describe('AuthProvider and cached token store', () => {
     })
 
     assert.notEqual(renderer.toJSON(), null)
-    assert.equal(renderSnapshots[renderSnapshots.length - 1]?.sub, 'barista@coffee.test')
+    assert.equal(
+      renderSnapshots[renderSnapshots.length - 1]?.sub,
+      'barista@coffee.test'
+    )
     assert.deepEqual(apiGetCalls, ['/orders', '/inventory'])
     assert.equal(socketConnections, 1)
 
@@ -510,9 +515,21 @@ describe('AuthProvider and cached token store', () => {
         await flushPromises()
       })
 
-      assert.equal(renderer.toJSON(), null, `Expected null render for ${label} token`)
-      assert.equal(storage.getItem('token'), null, `Expected localStorage cleared for ${label}`)
-      assert.deepEqual(pushedRoutes, ['/login'], `Expected single redirect for ${label}`)
+      assert.equal(
+        renderer.toJSON(),
+        null,
+        `Expected null render for ${label} token`
+      )
+      assert.equal(
+        storage.getItem('token'),
+        null,
+        `Expected localStorage cleared for ${label}`
+      )
+      assert.deepEqual(
+        pushedRoutes,
+        ['/login'],
+        `Expected single redirect for ${label}`
+      )
       assert.equal(apiGetCalls.length, 0, `Expected 0 API calls for ${label}`)
 
       // Triggering router updates must not cause duplicate redirect loops
@@ -525,7 +542,11 @@ describe('AuthProvider and cached token store', () => {
         )
         await flushPromises()
       })
-      assert.deepEqual(pushedRoutes, ['/login'], `Expected no redirect loop for ${label}`)
+      assert.deepEqual(
+        pushedRoutes,
+        ['/login'],
+        `Expected no redirect loop for ${label}`
+      )
 
       renderer.unmount()
     }

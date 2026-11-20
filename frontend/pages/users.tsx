@@ -6,8 +6,9 @@ import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
 import FormErrorBanner from '../components/ui/FormErrorBanner'
 import { toast } from '../components/ui/use-toast'
+import { getApiErrorDetail, type UserOut } from '../types/api'
 
-export type UserItem = { id: number; username: string; is_manager?: boolean }
+export type UserItem = UserOut
 
 export const CreateUserForm = memo(function CreateUserForm({
   onCreated,
@@ -15,8 +16,15 @@ export const CreateUserForm = memo(function CreateUserForm({
   onCreated: () => void
 }) {
   const managerCheckboxId = useId()
-  const [form, setForm] = useState({ username: '', password: '', is_manager: false })
-  const [errors, setErrors] = useState<{ username?: string; password?: string }>({})
+  const [form, setForm] = useState({
+    username: '',
+    password: '',
+    is_manager: false,
+  })
+  const [errors, setErrors] = useState<{
+    username?: string
+    password?: string
+  }>({})
   const [createError, setCreateError] = useState<string | null>(null)
 
   const create = async () => {
@@ -43,14 +51,16 @@ export const CreateUserForm = memo(function CreateUserForm({
       toast({ title: 'User created', description: form.username })
       setForm({ username: '', password: '', is_manager: false })
       onCreated()
-    } catch (e: any) {
-      const detail = e?.response?.data?.detail
+    } catch (e: unknown) {
+      const detail = getApiErrorDetail(e, '')
       setCreateError(
-        typeof detail === 'string' && detail
-          ? `Failed to create user: ${detail}`
-          : 'Failed to create user.'
+        detail ? `Failed to create user: ${detail}` : 'Failed to create user.'
       )
-      toast({ title: 'Error', description: 'Failed to create', variant: 'destructive' })
+      toast({
+        title: 'Error',
+        description: 'Failed to create',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -65,11 +75,13 @@ export const CreateUserForm = memo(function CreateUserForm({
         error={errors.username}
         aria-invalid={Boolean(errors.username || createError) || undefined}
         aria-describedby={createError ? 'users-create-error' : undefined}
-        onChange={e => {
+        onChange={(e) => {
           const val = (e.target as HTMLInputElement).value
-          setForm(prev => ({ ...prev, username: val }))
+          setForm((prev) => ({ ...prev, username: val }))
           if (val.trim()) {
-            setErrors(prev => (prev.username ? { ...prev, username: undefined } : prev))
+            setErrors((prev) =>
+              prev.username ? { ...prev, username: undefined } : prev
+            )
           }
         }}
       />
@@ -82,11 +94,13 @@ export const CreateUserForm = memo(function CreateUserForm({
         error={errors.password}
         aria-invalid={Boolean(errors.password || createError) || undefined}
         aria-describedby={createError ? 'users-create-error' : undefined}
-        onChange={e => {
+        onChange={(e) => {
           const val = (e.target as HTMLInputElement).value
-          setForm(prev => ({ ...prev, password: val }))
+          setForm((prev) => ({ ...prev, password: val }))
           if (val.trim()) {
-            setErrors(prev => (prev.password ? { ...prev, password: undefined } : prev))
+            setErrors((prev) =>
+              prev.password ? { ...prev, password: undefined } : prev
+            )
           }
         }}
       />
@@ -98,8 +112,11 @@ export const CreateUserForm = memo(function CreateUserForm({
           id={managerCheckboxId}
           type="checkbox"
           checked={form.is_manager}
-          onChange={e =>
-            setForm(prev => ({ ...prev, is_manager: (e.target as HTMLInputElement).checked }))
+          onChange={(e) =>
+            setForm((prev) => ({
+              ...prev,
+              is_manager: (e.target as HTMLInputElement).checked,
+            }))
           }
         />
         <span>Manager</span>
@@ -122,7 +139,10 @@ export const UserRow = memo(function UserRow({
       <span>
         {user.username} {user.is_manager ? '(Manager)' : ''}
       </span>
-      <Button contextLabel={`user ${user.username}`} onClick={() => onDelete(user.id)}>
+      <Button
+        contextLabel={`user ${user.username}`}
+        onClick={() => onDelete(user.id)}
+      >
         Delete
       </Button>
     </li>
@@ -137,13 +157,19 @@ export default function Users() {
   const load = useCallback(() => {
     api
       .get('/users')
-      .then(r => {
+      .then((r) => {
         setUsers(r.data)
-        setAccessError(prev => (prev ? null : prev))
+        setAccessError((prev) => (prev ? null : prev))
       })
       .catch(() => {
-        setAccessError('Manager permissions are required to view and manage users.')
-        toast({ title: 'Error', description: 'Manager only', variant: 'destructive' })
+        setAccessError(
+          'Manager permissions are required to view and manage users.'
+        )
+        toast({
+          title: 'Error',
+          description: 'Manager only',
+          variant: 'destructive',
+        })
       })
   }, [])
 
@@ -158,7 +184,11 @@ export default function Users() {
         toast({ title: 'User deleted' })
         load()
       } catch {
-        toast({ title: 'Error', description: 'Failed to delete', variant: 'destructive' })
+        toast({
+          title: 'Error',
+          description: 'Failed to delete',
+          variant: 'destructive',
+        })
       }
     },
     [load]
@@ -176,7 +206,7 @@ export default function Users() {
           Existing
         </h2>
         <ul aria-labelledby="existing-users-heading" className="space-y-2">
-          {users.map(u => (
+          {users.map((u) => (
             <UserRow key={u.id} user={u} onDelete={del} />
           ))}
         </ul>

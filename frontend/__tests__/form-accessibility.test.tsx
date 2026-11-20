@@ -31,9 +31,14 @@ import Orders, { ProductOrderRow, ProductPickerRow } from '../pages/orders'
 import Users from '../pages/users'
 
 function makeValidJwt(): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
-    JSON.stringify({ sub: 'manager@coffee.test', exp: Math.floor(Date.now() / 1000) + 3600 })
+    JSON.stringify({
+      sub: 'manager@coffee.test',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    })
   ).toString('base64url')
   return `${header}.${payload}.sig`
 }
@@ -56,7 +61,7 @@ function createMemoryStorage() {
 
 function getText(node: ReactTestInstance): string {
   return node.children
-    .map(child => (typeof child === 'string' ? child : getText(child)))
+    .map((child) => (typeof child === 'string' ? child : getText(child)))
     .join('')
 }
 
@@ -77,14 +82,21 @@ function assertUniqueControlIdsAndLabels(root: ReactTestInstance) {
 
   for (const control of controls) {
     const id = control.props.id
-    assert.equal(typeof id, 'string', 'Every input/select must have a string id')
+    assert.equal(
+      typeof id,
+      'string',
+      'Every input/select must have a string id'
+    )
     assert.ok(id.trim().length > 0, 'Every input/select id must be non-empty')
     assert.equal(seenControlIds.has(id), false, `Duplicate control id "${id}"`)
     seenControlIds.add(id)
 
-    const matchingLabel = labels.find(lbl => lbl.props.htmlFor === id)
+    const matchingLabel = labels.find((lbl) => lbl.props.htmlFor === id)
     assert.ok(matchingLabel, `Expected <label htmlFor="${id}"> for control`)
-    assert.ok(getText(matchingLabel).trim().length > 0, `Expected non-empty label text for "${id}"`)
+    assert.ok(
+      getText(matchingLabel).trim().length > 0,
+      `Expected non-empty label text for "${id}"`
+    )
   }
 }
 
@@ -111,17 +123,28 @@ describe('Input and Select accessible primitives', () => {
             aria-describedby="external-hint"
           />
           <Input label="Compact Row Qty" hideLabel />
-          <Select label="Roast Level" hideLabel helperText="Choose roast" error="Required">
+          <Select
+            label="Roast Level"
+            hideLabel
+            helperText="Choose roast"
+            error="Required"
+          >
             <option value="light">Light</option>
           </Select>
         </div>,
         {
-          createNodeMock: element => ({ tagName: element.type, props: element.props }),
+          createNodeMock: (element) => ({
+            tagName: element.type,
+            props: element.props,
+          }),
         }
       )
     })
 
-    assert.ok(capturedNode, 'Expected Input React.forwardRef to receive input element')
+    assert.ok(
+      capturedNode,
+      'Expected Input React.forwardRef to receive input element'
+    )
     const [firstInput, secondInput] = renderer.root.findAllByType('input')
     assert.notEqual(firstInput.props.id, secondInput.props.id)
 
@@ -132,15 +155,23 @@ describe('Input and Select accessible primitives', () => {
     assert.equal(labels[1].props.className.includes('sr-only'), true)
 
     assert.equal(firstInput.props['aria-invalid'], 'true')
-    const describedByTokens = String(firstInput.props['aria-describedby']).split(' ')
+    const describedByTokens = String(
+      firstInput.props['aria-describedby']
+    ).split(' ')
     assert.deepEqual(describedByTokens, [
       'external-hint',
       `${firstInput.props.id}-helper`,
       `${firstInput.props.id}-error`,
     ])
 
-    const errorPara = renderer.root.findByProps({ id: `${firstInput.props.id}-error` })
-    assert.equal(errorPara.props.role, undefined, 'Field error should not add duplicate role="alert"')
+    const errorPara = renderer.root.findByProps({
+      id: `${firstInput.props.id}-error`,
+    })
+    assert.equal(
+      errorPara.props.role,
+      undefined,
+      'Field error should not add duplicate role="alert"'
+    )
     assert.match(getText(errorPara), /Pin must be 4 digits\./)
 
     const selectEl = renderer.root.findByType('select')
@@ -191,13 +222,20 @@ describe('Reconciled page forms accessibility and error handling', () => {
       await form.props.onSubmit({ preventDefault: () => {} })
     })
     assert.equal(postCalls, 1)
-    assert.equal(renderer.root.findAll(n => n.props?.role === 'alert').length, 0)
+    assert.equal(
+      renderer.root.findAll((n) => n.props?.role === 'alert').length,
+      0
+    )
 
     let [userInput, passInput] = renderer.root.findAllByType('input')
     assert.equal(userInput.props['aria-invalid'], 'true')
     assert.equal(passInput.props['aria-invalid'], 'true')
-    assert.ok(renderer.root.findByProps({ id: userInput.props['aria-describedby'] }))
-    assert.ok(renderer.root.findByProps({ id: passInput.props['aria-describedby'] }))
+    assert.ok(
+      renderer.root.findByProps({ id: userInput.props['aria-describedby'] })
+    )
+    assert.ok(
+      renderer.root.findByProps({ id: passInput.props['aria-describedby'] })
+    )
 
     // Typing credentials clears field errors; rejected API submission announces FormErrorBanner
     await act(async () => {
@@ -213,7 +251,9 @@ describe('Reconciled page forms accessibility and error handling', () => {
     })
     assert.equal(postCalls, 2)
 
-    const banner = renderer.root.find(n => n.type === 'div' && n.props.id === 'login-form-error')
+    const banner = renderer.root.find(
+      (n) => n.type === 'div' && n.props.id === 'login-form-error'
+    )
     assert.equal(banner.props.role, 'alert')
     ;[userInput, passInput] = renderer.root.findAllByType('input')
     assert.equal(userInput.props['aria-invalid'], 'true')
@@ -244,16 +284,24 @@ describe('Reconciled page forms accessibility and error handling', () => {
     })
 
     assertUniqueControlIdsAndLabels(renderer.root)
-    assert.equal(renderer.root.findAllByType(ProductRow.type ?? ProductRow).length, 2)
+    const RowComponent =
+      (ProductRow as unknown as { type?: React.ElementType }).type ?? ProductRow
+    assert.equal(renderer.root.findAllByType(RowComponent).length, 2)
 
     // Empty product name sets aria-invalid + aria-describedby on CreateProductForm Name input
-    const addBtn = renderer.root.findAllByType('button').find(b => getText(b).trim() === 'Add Product')!
+    const addBtn = renderer.root
+      .findAllByType('button')
+      .find((b) => getText(b).trim() === 'Add Product')!
     await act(async () => {
       await addBtn.props.onClick()
     })
     const createNameInput = renderer.root.findAllByType('input')[0]
     assert.equal(createNameInput.props['aria-invalid'], 'true')
-    assert.ok(renderer.root.findByProps({ id: createNameInput.props['aria-describedby'] }))
+    assert.ok(
+      renderer.root.findByProps({
+        id: createNameInput.props['aria-describedby'],
+      })
+    )
 
     // API failure displays FormErrorBanner
     await act(async () => {
@@ -262,7 +310,9 @@ describe('Reconciled page forms accessibility and error handling', () => {
     await act(async () => {
       await addBtn.props.onClick()
     })
-    const alerts = renderer.root.findAll(n => n.type === 'div' && n.props?.role === 'alert')
+    const alerts = renderer.root.findAll(
+      (n) => n.type === 'div' && n.props?.role === 'alert'
+    )
     assert.equal(alerts.length, 1)
     assert.match(getText(alerts[0]), /Product already exists/)
 
@@ -295,23 +345,28 @@ describe('Reconciled page forms accessibility and error handling', () => {
     // Submitting empty cart shows FormErrorBanner; adding qty > 0 clears it
     const createOrderBtn = renderer.root
       .findAllByType('button')
-      .find(b => getText(b).trim() === 'Create Order')!
+      .find((b) => getText(b).trim() === 'Create Order')!
     await act(async () => {
       await createOrderBtn.props.onClick()
     })
 
     const errorBanner = renderer.root.find(
-      n => n.type === 'div' && n.props.id === 'orders-form-error'
+      (n) => n.type === 'div' && n.props.id === 'orders-form-error'
     )
     assert.equal(errorBanner.props.role, 'alert')
 
     const firstQtyInput = renderer.root.findAll(
-      n => n.type === 'input' && n.props.type === 'number'
+      (n) => n.type === 'input' && n.props.type === 'number'
     )[0]
     await act(async () => {
       firstQtyInput.props.onChange({ target: { value: '2' } })
     })
-    assert.equal(renderer.root.findAll(n => n.props?.id === 'orders-form-error' && n.type === 'div').length, 0)
+    assert.equal(
+      renderer.root.findAll(
+        (n) => n.props?.id === 'orders-form-error' && n.type === 'div'
+      ).length,
+      0
+    )
 
     renderer.unmount()
   })
@@ -337,13 +392,13 @@ describe('Reconciled page forms accessibility and error handling', () => {
 
     assertUniqueControlIdsAndLabels(renderer.root)
     const headings = renderer.root.findAll(
-      n => n.type === 'h2' && n.props.id === 'existing-users-heading'
+      (n) => n.type === 'h2' && n.props.id === 'existing-users-heading'
     )
     assert.equal(headings.length, 1)
 
     const createUserBtn = renderer.root
       .findAllByType('button')
-      .find(b => getText(b).trim() === 'Create User')!
+      .find((b) => getText(b).trim() === 'Create User')!
     await act(async () => {
       await createUserBtn.props.onClick()
     })
@@ -361,7 +416,7 @@ describe('Reconciled page forms accessibility and error handling', () => {
     })
 
     const createBanner = renderer.root.find(
-      n => n.type === 'div' && n.props.id === 'users-create-error'
+      (n) => n.type === 'div' && n.props.id === 'users-create-error'
     )
     assert.equal(createBanner.props.role, 'alert')
     assert.match(getText(createBanner), /Username taken/)

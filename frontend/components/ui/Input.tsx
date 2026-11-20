@@ -36,7 +36,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const computedLabelId = providedLabelId ?? `${inputId}-label`
     const helperId = helperText ? `${inputId}-helper` : undefined
     const resolvedErrorId = error ? (errorId ?? `${inputId}-error`) : undefined
-    const hasError = Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'
+    const hasError =
+      Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'
     const resolvedAriaInvalid = error
       ? 'true'
       : ariaInvalid === true
@@ -45,7 +46,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           ? 'false'
           : ariaInvalid
     const describedBy =
-      [ariaDescribedBy, helperId, resolvedErrorId].filter(Boolean).join(' ') || undefined
+      [ariaDescribedBy, helperId, resolvedErrorId].filter(Boolean).join(' ') ||
+      undefined
 
     const inputElement = (
       <input
@@ -82,7 +84,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         )}
         {inputElement}
         {helperText && (
-          <p id={helperId} className={twMerge('text-sm text-gray-600', hideLabel && 'mt-1')}>
+          <p
+            id={helperId}
+            className={twMerge('text-sm text-gray-600', hideLabel && 'mt-1')}
+          >
             {helperText}
           </p>
         )}

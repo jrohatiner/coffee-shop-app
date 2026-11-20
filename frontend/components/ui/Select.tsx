@@ -37,7 +37,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     const computedLabelId = providedLabelId ?? `${selectId}-label`
     const helperId = helperText ? `${selectId}-helper` : undefined
     const resolvedErrorId = error ? (errorId ?? `${selectId}-error`) : undefined
-    const hasError = Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'
+    const hasError =
+      Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'
     const resolvedAriaInvalid = error
       ? 'true'
       : ariaInvalid === true
@@ -46,7 +47,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           ? 'false'
           : ariaInvalid
     const describedBy =
-      [ariaDescribedBy, helperId, resolvedErrorId].filter(Boolean).join(' ') || undefined
+      [ariaDescribedBy, helperId, resolvedErrorId].filter(Boolean).join(' ') ||
+      undefined
 
     const selectElement = (
       <select
@@ -85,7 +87,10 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         )}
         {selectElement}
         {helperText && (
-          <p id={helperId} className={twMerge('text-sm text-gray-600', hideLabel && 'mt-1')}>
+          <p
+            id={helperId}
+            className={twMerge('text-sm text-gray-600', hideLabel && 'mt-1')}
+          >
             {helperText}
           </p>
         )}
