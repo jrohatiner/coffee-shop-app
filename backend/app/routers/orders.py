@@ -28,6 +28,17 @@ def _serialize_order_summary(order) -> dict:
     return jsonable_encoder(summary)
 
 
+def _serialize_order_stock_delta(order_out: schemas.OrderOut) -> dict:
+    seen_ids = set()
+    updated: List[schemas.ProductOut] = []
+    for item in order_out.items:
+        prod = getattr(item, "product", None)
+        if prod is not None and prod.id not in seen_ids:
+            seen_ids.add(prod.id)
+            updated.append(prod)
+    return jsonable_encoder(schemas.StockDeltaOut(updated=updated, deleted_ids=[]))
+
+
 def _orders_with_details_query(db: Session):
     return db.query(models.Order).options(
         joinedload(models.Order.items).joinedload(models.OrderItem.product)
@@ -85,7 +96,7 @@ def _create_order_sync(
     user_id: Optional[int],
     order: schemas.OrderCreate,
     request: Request,
-) -> schemas.OrderOut:
+) -> Tuple[schemas.OrderOut, dict, dict]:
     with database.session_scope(request) as db:
         product_ids = sorted({item.product_id for item in order.items})
         product_map: Dict[int, models.Product] = {}
@@ -134,15 +145,18 @@ def _create_order_sync(
         db.flush()
 
         order_out = _serialize_order(db_order)
+        order_summary = _serialize_order_summary(order_out)
+        stock_delta = _serialize_order_stock_delta(order_out)
         db.commit()
-        return order_out
+        return order_out, order_summary, stock_delta
 
 
 def _cancel_order_sync(
     order_id: int,
-    current_user,
+    user_id: Optional[int],
+    is_manager: bool,
     request: Request,
-) -> Tuple[schemas.OrderOut, bool]:
+) -> Tuple[schemas.OrderOut, Optional[dict], Optional[dict], bool]:
     with database.session_scope(request) as db:
         order = (
             db.query(models.Order)
@@ -153,7 +167,7 @@ def _cancel_order_sync(
         if not order:
             raise HTTPException(404, "Order not found")
 
-        if not (order.user_id == current_user.id or current_user.is_manager):
+        if not (order.user_id == user_id or is_manager):
             raise HTTPException(403, "Not authorized to cancel this order")
 
         if order.status in ("completed", "shipped"):
@@ -176,7 +190,7 @@ def _cancel_order_sync(
             set_committed_value(it, "product", product_map.get(it.product_id))
 
         if order.status == "cancelled":
-            return _serialize_order(order), False
+            return _serialize_order(order), None, None, False
 
         restock_quantities: Dict[int, int] = {}
         for it in order.items:
@@ -193,8 +207,13 @@ def _cancel_order_sync(
         db.flush()
 
         order_out = _serialize_order(order)
+        cancelled_payload = {
+            **_serialize_order_summary(order_out),
+            "order_id": order_out.id,
+        }
+        stock_delta = _serialize_order_stock_delta(order_out)
         db.commit()
-        return order_out, True
+        return order_out, cancelled_payload, stock_delta, True
 
 
 @router.post("/", response_model=schemas.OrderOut)
@@ -204,17 +223,16 @@ async def create_order(
     request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    order_out = await run_in_threadpool(
+    order_out, order_summary, stock_delta = await run_in_threadpool(
         _create_order_sync,
         current_user.id,
         order,
         request,
     )
-    order_summary = _serialize_order_summary(order_out)
 
-    # Notify listeners with lightweight summary data
+    # Notify listeners with lightweight summary and stock delta data
     await sio.emit("new_order", order_summary)
-    await sio.emit("stock_update")
+    await sio.emit("stock_update", stock_delta)
 
     return order_out
 
@@ -225,18 +243,15 @@ async def cancel_order(
     request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    order_out, did_cancel = await run_in_threadpool(
+    order_out, cancelled_payload, stock_delta, did_cancel = await run_in_threadpool(
         _cancel_order_sync,
         order_id,
-        current_user,
+        current_user.id,
+        bool(current_user.is_manager),
         request,
     )
     if did_cancel:
-        cancelled_payload = {
-            **_serialize_order_summary(order_out),
-            "order_id": order_out.id,
-        }
-        await sio.emit("stock_update")
+        await sio.emit("stock_update", stock_delta)
         await sio.emit("order_cancelled", cancelled_payload)
 
     return order_out

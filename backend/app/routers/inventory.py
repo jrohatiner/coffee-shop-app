@@ -1,7 +1,8 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app import auth, database, models, schemas
@@ -17,6 +18,15 @@ def _to_product_out(product: models.Product) -> schemas.ProductOut:
     return schemas.ProductOut.from_orm(product)
 
 
+def _serialize_stock_delta(
+    updated: List[schemas.ProductOut],
+    deleted_ids: List[int],
+) -> dict:
+    return jsonable_encoder(
+        schemas.StockDeltaOut(updated=updated, deleted_ids=deleted_ids)
+    )
+
+
 def _dump_product_create(product_in: schemas.ProductCreate) -> dict:
     if hasattr(product_in, "model_dump"):
         return product_in.model_dump()
@@ -26,7 +36,7 @@ def _dump_product_create(product_in: schemas.ProductCreate) -> dict:
 def _create_inventory_item_sync(
     product_in: schemas.ProductCreate,
     request: Request,
-) -> schemas.ProductOut:
+) -> Tuple[schemas.ProductOut, dict]:
     with database.session_scope(request) as db:
         if db.query(models.Product).filter(models.Product.name == product_in.name).first():
             raise HTTPException(400, "Product name already exists")
@@ -35,14 +45,16 @@ def _create_inventory_item_sync(
         db.add(product)
         db.commit()
         db.refresh(product)
-        return _to_product_out(product)
+        product_out = _to_product_out(product)
+        stock_delta = _serialize_stock_delta(updated=[product_out], deleted_ids=[])
+        return product_out, stock_delta
 
 
 def _update_inventory_sync(
     product_id: int,
     product_update: schemas.ProductCreate,
     request: Request,
-) -> schemas.ProductOut:
+) -> Tuple[schemas.ProductOut, dict]:
     with database.session_scope(request) as db:
         product = db.query(models.Product).filter(models.Product.id == product_id).first()
         if not product:
@@ -54,13 +66,15 @@ def _update_inventory_sync(
 
         db.commit()
         db.refresh(product)
-        return _to_product_out(product)
+        product_out = _to_product_out(product)
+        stock_delta = _serialize_stock_delta(updated=[product_out], deleted_ids=[])
+        return product_out, stock_delta
 
 
 def _delete_inventory_item_sync(
     product_id: int,
     request: Request,
-) -> Dict[str, str]:
+) -> Tuple[Dict[str, str], dict]:
     with database.session_scope(request) as db:
         product = db.query(models.Product).filter(models.Product.id == product_id).first()
         if not product:
@@ -70,9 +84,11 @@ def _delete_inventory_item_sync(
         if in_use:
             raise HTTPException(400, "Cannot delete a product used in existing orders")
 
+        deleted_id = product.id
         db.delete(product)
         db.commit()
-        return {"detail": "Product deleted"}
+        stock_delta = _serialize_stock_delta(updated=[], deleted_ids=[deleted_id])
+        return {"detail": "Product deleted"}, stock_delta
 
 
 @router.get("/", response_model=List[schemas.ProductOut])
@@ -93,8 +109,12 @@ async def create_inventory_item(
     # if not current_user.is_manager:
     #     raise HTTPException(403, "Only managers can add products")
 
-    product_out = await run_in_threadpool(_create_inventory_item_sync, product_in, request)
-    await sio.emit("stock_update")
+    product_out, stock_delta = await run_in_threadpool(
+        _create_inventory_item_sync,
+        product_in,
+        request,
+    )
+    await sio.emit("stock_update", stock_delta)
     return product_out
 
 
@@ -105,13 +125,13 @@ async def update_inventory(
     request: Request,
     current_user=Depends(auth.get_current_user),
 ):
-    product_out = await run_in_threadpool(
+    product_out, stock_delta = await run_in_threadpool(
         _update_inventory_sync,
         product_id,
         product_update,
         request,
     )
-    await sio.emit("stock_update")
+    await sio.emit("stock_update", stock_delta)
     return product_out
 
 
@@ -125,6 +145,10 @@ async def delete_inventory_item(
     # if not current_user.is_manager:
     #     raise HTTPException(403, "Only managers can delete products")
 
-    result = await run_in_threadpool(_delete_inventory_item_sync, product_id, request)
-    await sio.emit("stock_update")
+    result, stock_delta = await run_in_threadpool(
+        _delete_inventory_item_sync,
+        product_id,
+        request,
+    )
+    await sio.emit("stock_update", stock_delta)
     return result

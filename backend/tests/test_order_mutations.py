@@ -338,6 +338,7 @@ def test_duplicate_product_ids_aggregate_for_validation_deduction_and_restock(te
 
     # Valid split items (7 + 8 = 15 <= 20 stock) deduct 15 and restock 15 on cancel
     tracker.reset()
+    test_env["emit_events"].clear()
     ok_resp = client.post(
         "/orders/",
         json={
@@ -353,6 +354,13 @@ def test_duplicate_product_ids_aggregate_for_validation_deduction_and_restock(te
     assert [it["product"]["stock"] for it in order_data["items"]] == [5, 5]
     assert len(tracker.product_selects) == 1
     assert tracker.commits == 1
+    stock_delta_create = next(
+        args[0] for ev, args, _ in test_env["emit_events"] if ev == "stock_update"
+    )
+    assert len(stock_delta_create["updated"]) == 1
+    assert stock_delta_create["updated"][0]["id"] == pid
+    assert stock_delta_create["updated"][0]["stock"] == 5
+    assert stock_delta_create["deleted_ids"] == []
 
     tracker.reset()
     cancel_resp = client.post(f"/orders/{order_data['id']}/cancel")
@@ -444,6 +452,19 @@ def test_empty_items_and_idempotent_cancel_and_missing_product_restock(test_env)
     assert len(tracker.product_selects) == 1
     assert tracker.commits == 1
     assert [ev[0] for ev in emit_events] == ["stock_update", "order_cancelled"]
+    assert emit_events[0][1] == (
+        {
+            "updated": [
+                {
+                    "id": p1,
+                    "name": "Coffee #1",
+                    "price": 3.75,
+                    "stock": 20,
+                }
+            ],
+            "deleted_ids": [],
+        },
+    )
 
     db = SessionLocal()
     try:
