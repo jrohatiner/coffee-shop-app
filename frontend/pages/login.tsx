@@ -13,11 +13,11 @@ export default function Login() {
   const r = useRouter()
   const [username, setU] = useState('')
   const [password, setP] = useState('')
-  const [formError, setFormError] = useState<string | null>(null)
   const [errors, setErrors] = useState<{
     username?: string
     password?: string
   }>({})
+  const [formError, setFormError] = useState<string | null>(null)
 
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -31,22 +31,24 @@ export default function Login() {
       setAuthToken(res.data.access_token)
       r.push('/dashboard')
     } catch {
-      setFormError(
-        'Login failed: Invalid credentials. Check your username and password and try again.'
-      )
-      setErrors({
-        username: !username.trim()
-          ? 'Username is required.'
-          : 'Invalid credentials. Check your username and try again.',
-        password: !password.trim()
-          ? 'Password is required.'
-          : 'Invalid credentials. Check your password and try again.',
-      })
+      const missingUsername = !username.trim()
+      const missingPassword = !password.trim()
       toast({
         title: 'Login failed',
         description: 'Invalid credentials',
         variant: 'destructive',
       })
+      if (missingUsername || missingPassword) {
+        setErrors({
+          username: missingUsername ? 'Username is required.' : undefined,
+          password: missingPassword ? 'Password is required.' : undefined,
+        })
+        return
+      }
+      setErrors({})
+      setFormError(
+        'Login failed: Invalid credentials. Check your username and password and try again.'
+      )
     }
   }
 
@@ -62,12 +64,16 @@ export default function Login() {
           autoComplete="username"
           value={username}
           error={errors.username}
+          aria-invalid={Boolean(errors.username || formError) || undefined}
           aria-describedby={formError ? 'login-form-error' : undefined}
           onChange={(e) => {
             const val = (e.target as HTMLInputElement).value
             setU(val)
-            if (errors.username)
-              setErrors((prev) => ({ ...prev, username: undefined }))
+            if (val.trim()) {
+              setErrors((prev) =>
+                prev.username ? { ...prev, username: undefined } : prev
+              )
+            }
           }}
         />
         <Input
@@ -79,12 +85,16 @@ export default function Login() {
           autoComplete="current-password"
           value={password}
           error={errors.password}
+          aria-invalid={Boolean(errors.password || formError) || undefined}
           aria-describedby={formError ? 'login-form-error' : undefined}
           onChange={(e) => {
             const val = (e.target as HTMLInputElement).value
             setP(val)
-            if (errors.password)
-              setErrors((prev) => ({ ...prev, password: undefined }))
+            if (val.trim()) {
+              setErrors((prev) =>
+                prev.password ? { ...prev, password: undefined } : prev
+              )
+            }
           }}
         />
         <FormErrorBanner id="login-form-error" message={formError} />

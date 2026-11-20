@@ -53,7 +53,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
 const LOCAL_SOCKET_ECHO_TTL_MS = 1500
 
-export const ProductPickerRow = memo(function ProductPickerRow({
+export const ProductOrderRow = memo(function ProductOrderRow({
   product,
   quantity,
   onChangeQty,
@@ -99,6 +99,8 @@ export const ProductPickerRow = memo(function ProductPickerRow({
   )
 })
 
+export const ProductPickerRow = ProductOrderRow
+
 export const OrderCreator = memo(function OrderCreator({
   products,
   isProductsLoading = false,
@@ -117,6 +119,7 @@ export const OrderCreator = memo(function OrderCreator({
 }) {
   const [cart, setCart] = useState<Record<number, number>>({})
   const [status, setStatus] = useState<OrderStatus>('pending')
+  const [orderError, setOrderError] = useState<string | null>(null)
 
   const productById = useMemo(
     () => new Map<number, Product>(products.map((p) => [p.id, p])),
@@ -125,6 +128,9 @@ export const OrderCreator = memo(function OrderCreator({
 
   const setQty = useCallback((pid: number, qty: number) => {
     const normalizedQty = Number.isNaN(qty) ? 0 : qty
+    if (normalizedQty > 0) {
+      setOrderError((prev) => (prev ? null : prev))
+    }
     setCart((prev) => {
       if (normalizedQty <= 0) {
         if (!(pid in prev)) return prev
@@ -138,11 +144,15 @@ export const OrderCreator = memo(function OrderCreator({
   }, [])
 
   const createOrder = async () => {
+    setOrderError(null)
     const items = Object.entries(cart).map(([product_id, quantity]) => ({
       product_id: Number(product_id),
       quantity: Number(quantity),
     }))
     if (items.length === 0) {
+      setOrderError(
+        'Add at least one item with a quantity greater than 0 before creating an order.'
+      )
       toast({ title: 'Add at least one item', variant: 'destructive' })
       return
     }
@@ -153,6 +163,7 @@ export const OrderCreator = memo(function OrderCreator({
       } else {
         await api.post('/orders', { status, items })
       }
+      setOrderError(null)
       toast({ title: 'Order created' })
       setCart({})
       setStatus('pending')
@@ -160,9 +171,11 @@ export const OrderCreator = memo(function OrderCreator({
         await onOrderCreated()
       }
     } catch (e: unknown) {
+      const detail = getApiErrorDetail(e, 'Failed to create order')
+      setOrderError(detail)
       toast({
         title: 'Error',
-        description: getApiErrorDetail(e, 'Failed to create order'),
+        description: detail,
         variant: 'destructive',
       })
     }
@@ -198,7 +211,7 @@ export const OrderCreator = memo(function OrderCreator({
           {!productsError && (
             <div className="space-y-2 max-h-80 overflow-auto pr-2">
               {products.map((p) => (
-                <ProductPickerRow
+                <ProductOrderRow
                   key={p.id}
                   product={p}
                   quantity={cart[p.id] ?? 0}
@@ -211,6 +224,7 @@ export const OrderCreator = memo(function OrderCreator({
 
         <div className="space-y-3">
           <Select
+            id="order-status"
             label="Order Status"
             labelClassName="text-base font-medium text-gray-900"
             value={status}
@@ -241,6 +255,7 @@ export const OrderCreator = memo(function OrderCreator({
             </ul>
           </div>
 
+          <FormErrorBanner id="orders-form-error" message={orderError} />
           <Button onClick={createOrder}>Create Order</Button>
         </div>
       </div>

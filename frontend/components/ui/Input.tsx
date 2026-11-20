@@ -3,6 +3,7 @@ import { twMerge } from 'tailwind-merge'
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
   label?: React.ReactNode
+  hideLabel?: boolean
   labelId?: string
   labelClassName?: string
   wrapperClassName?: string
@@ -16,6 +17,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     {
       id,
       label,
+      hideLabel = false,
       labelId: providedLabelId,
       labelClassName = '',
       wrapperClassName = '',
@@ -36,7 +38,13 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const resolvedErrorId = error ? (errorId ?? `${inputId}-error`) : undefined
     const hasError =
       Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'
-    const resolvedAriaInvalid = error ? 'true' : ariaInvalid
+    const resolvedAriaInvalid = error
+      ? 'true'
+      : ariaInvalid === true
+        ? 'true'
+        : ariaInvalid === false
+          ? 'false'
+          : ariaInvalid
     const describedBy =
       [ariaDescribedBy, helperId, resolvedErrorId].filter(Boolean).join(' ') ||
       undefined
@@ -61,13 +69,13 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     }
 
     return (
-      <div className={wrapperClassName || 'space-y-1'}>
+      <div className={wrapperClassName || (hideLabel ? '' : 'space-y-1')}>
         {label && (
           <label
             id={computedLabelId}
             htmlFor={inputId}
             className={twMerge(
-              'block text-sm font-medium text-gray-800',
+              hideLabel ? 'sr-only' : 'block text-sm font-medium text-gray-800',
               labelClassName
             )}
           >
@@ -76,7 +84,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         )}
         {inputElement}
         {helperText && (
-          <p id={helperId} className="text-sm text-gray-600">
+          <p
+            id={helperId}
+            className={twMerge('text-sm text-gray-600', hideLabel && 'mt-1')}
+          >
             {helperText}
           </p>
         )}
@@ -85,6 +96,18 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={resolvedErrorId}
             className="mt-1 flex items-start gap-1.5 text-sm font-medium text-red-800"
           >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="mt-0.5 h-4 w-4 shrink-0 text-red-800"
+            >
+              <path
+                fillRule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
+                clipRule="evenodd"
+              />
+            </svg>
             <span>{error}</span>
           </p>
         )}

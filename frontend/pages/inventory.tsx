@@ -32,6 +32,7 @@ export const CreateProductForm = memo(function CreateProductForm({
     stock: number
   }) => Promise<void>
 }) {
+  const createErrorId = useId()
   const [newItem, setNewItem] = useState<{
     name: string
     price: string
@@ -41,12 +42,17 @@ export const CreateProductForm = memo(function CreateProductForm({
     price: '',
     stock: '',
   })
+  const [nameError, setNameError] = useState<string | undefined>(undefined)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const create = async () => {
+    setCreateError(null)
     if (!newItem.name.trim()) {
+      setNameError('Product name is required.')
       toast({ title: 'Name required', variant: 'destructive' })
       return
     }
+    setNameError(undefined)
     const parsedPrice =
       newItem.price.trim() === '' ? 0 : parseFloat(newItem.price)
     const parsedStock =
@@ -66,9 +72,11 @@ export const CreateProductForm = memo(function CreateProductForm({
       toast({ title: 'Product created', description: newItem.name })
       setNewItem({ name: '', price: '', stock: '' })
     } catch (e: unknown) {
+      const detail = getApiErrorDetail(e, 'Failed to create')
+      setCreateError(detail)
       toast({
         title: 'Error',
-        description: getApiErrorDetail(e, 'Failed to create'),
+        description: detail,
         variant: 'destructive',
       })
     }
@@ -82,12 +90,16 @@ export const CreateProductForm = memo(function CreateProductForm({
           label="Name"
           placeholder="e.g. Flat White"
           value={newItem.name}
-          onChange={(e) =>
-            setNewItem((prev) => ({
-              ...prev,
-              name: (e.target as HTMLInputElement).value,
-            }))
-          }
+          error={nameError}
+          aria-invalid={Boolean(nameError || createError) || undefined}
+          aria-describedby={createError ? createErrorId : undefined}
+          onChange={(e) => {
+            const val = (e.target as HTMLInputElement).value
+            setNewItem((prev) => ({ ...prev, name: val }))
+            if (val.trim()) {
+              setNameError((prev) => (prev ? undefined : prev))
+            }
+          }}
         />
         <Input
           label="Price"
@@ -116,6 +128,7 @@ export const CreateProductForm = memo(function CreateProductForm({
             }))
           }
         />
+        <FormErrorBanner id={createErrorId} message={createError} />
         <Button onClick={create}>Add Product</Button>
       </div>
     </section>
@@ -142,6 +155,7 @@ export const ProductRow = memo(function ProductRow({
     price: String(product.price),
     stock: String(product.stock),
   })
+  const [nameError, setNameError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     setDraft({
@@ -149,9 +163,16 @@ export const ProductRow = memo(function ProductRow({
       price: String(product.price),
       stock: String(product.stock),
     })
+    setNameError((prev) => (prev ? undefined : prev))
   }, [product.name, product.price, product.stock])
 
   const handleSave = () => {
+    if (!draft.name.trim()) {
+      setNameError('Product name is required.')
+      toast({ title: 'Name required', variant: 'destructive' })
+      return
+    }
+    setNameError((prev) => (prev ? undefined : prev))
     const parsedPrice = draft.price.trim() === '' ? 0 : parseFloat(draft.price)
     const parsedStock =
       draft.stock.trim() === '' ? 0 : parseInt(draft.stock, 10)
@@ -176,12 +197,14 @@ export const ProductRow = memo(function ProductRow({
           labelId={nameLabelId}
           aria-labelledby={`${legendId} ${nameLabelId}`}
           value={draft.name}
-          onChange={(e) =>
-            setDraft((prev) => ({
-              ...prev,
-              name: (e.target as HTMLInputElement).value,
-            }))
-          }
+          error={nameError}
+          onChange={(e) => {
+            const val = (e.target as HTMLInputElement).value
+            setDraft((prev) => ({ ...prev, name: val }))
+            if (val.trim()) {
+              setNameError((prev) => (prev ? undefined : prev))
+            }
+          }}
         />
         <Input
           label="Price"
