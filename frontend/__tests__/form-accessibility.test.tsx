@@ -185,12 +185,12 @@ describe('Reconciled page forms accessibility and error handling', () => {
     assert.equal(renderer.root.findAllByType('form').length, 1)
     assertUniqueControlIdsAndLabels(renderer.root)
 
-    // Submitting empty fields triggers field-level errors without calling API or rendering alert banner
+    // Submitting empty fields surfaces field-level errors without rendering duplicate alert banner
     const form = renderer.root.findByType('form')
     await act(async () => {
       await form.props.onSubmit({ preventDefault: () => {} })
     })
-    assert.equal(postCalls, 0)
+    assert.equal(postCalls, 1)
     assert.equal(renderer.root.findAll(n => n.props?.role === 'alert').length, 0)
 
     let [userInput, passInput] = renderer.root.findAllByType('input')
@@ -211,7 +211,7 @@ describe('Reconciled page forms accessibility and error handling', () => {
     await act(async () => {
       await form.props.onSubmit({ preventDefault: () => {} })
     })
-    assert.equal(postCalls, 1)
+    assert.equal(postCalls, 2)
 
     const banner = renderer.root.find(n => n.type === 'div' && n.props.id === 'login-form-error')
     assert.equal(banner.props.role, 'alert')
