@@ -1,15 +1,10 @@
 # AGENTS.md — Coffee Shop Ordering System
 
-This file defines repository conventions, deterministic dependency management, pre-commit guardrails, container release/provenance guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
+This file defines repository conventions, deterministic dependency management, pre-commit guardrails, secret management and Cloud Run deployment guardrails, container release/SLSA provenance guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
 
 ## Repository Structure & Architecture
 
-- `backend/` — FastAPI, SQLAlchemy 2.0.x, JWT (`python-jose` + `passlib`/bcrypt), and `python-socketio` ASGI backend running on Python 3.11 (`app/main.py`, `seed.py`, `tests/`, `pyproject.toml`, `requirements.in`, `requirements.txt`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
-This file defines repository conventions, pre-commit guardrails, secret management and Cloud Run deployment guardrails, container release/SLSA provenance guardrails, architecture details, and exact local verification commands that mirror `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `backend/cloudbuild.yaml`, and `frontend/cloudbuild.yaml`.
-
-## Repository Structure & Architecture
-
-- `backend/` — FastAPI, SQLAlchemy, JWT (`python-jose` + `passlib`), and `python-socketio` ASGI backend (`app/main.py`, `seed.py`, `tests/`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`, `.env.example`, `pyproject.toml`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
+- `backend/` — FastAPI, SQLAlchemy 2.0.x, JWT (`python-jose` + `passlib`/bcrypt), and `python-socketio` ASGI backend running on Python 3.11 (`app/main.py`, `seed.py`, `tests/`, `pyproject.toml`, `requirements.in`, `requirements.txt`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`, `.env.example`) deployed to Cloud Run as `coffee-backend` in `us-central1`.
   - REST routers in `backend/app/main.py`: `/auth`, `/dashboard`, `/orders`, `/inventory`, `/reports`, `/users`.
   - Socket.IO ASGI endpoint in `backend/app/websockets.py`: mounted at `/ws` with `socketio_path='/ws/socket.io'`.
 - `frontend/` — Next.js `14.1.0` (Pages Router, TypeScript, Tailwind CSS, Radix UI Toast, `socket.io-client`) frontend (`package.json`, `package-lock.json`, `tsconfig.json`, `next.config.js`, `.eslintrc.json`, `.prettierrc.json`, `firebase.json`, `cloudbuild.yaml`) configured for static HTML export (`output: 'export'`, `images: { unoptimized: true }`) into `frontend/out` and deployed to Firebase Hosting (`cleanUrls: true`).
@@ -74,7 +69,6 @@ npm ci
 NEXT_PUBLIC_API_URL=/ npm run build
 ```
 
-## Pre-commit and Local Guardrails
 ## Secret Management, Release & Provenance Guardrails
 
 - **No Plaintext Secrets in Build Configs**: `backend/cloudbuild.yaml` and `bootstrap_coffee_shop.sh` must never define plaintext password or signing-key substitutions (such as `_DB_PASS` or `_JWT_SECRET`) or `'replace-me'` defaults.
@@ -231,7 +225,7 @@ JWT_SECRET="local-dev-jwt-secret-key-12345" PYTHONPATH=. python -m pytest -v
 
    ```bash
    cd backend
-   tar -cf - seed.py tests | docker run --rm -i \
+   tar -cf - seed.py cloudbuild.yaml .env.example tests | docker run --rm -i \
      -e JWT_SECRET="cloudbuild-test-jwt-secret-key" \
      coffee-backend:local \
      sh -ceu '
@@ -241,31 +235,11 @@ JWT_SECRET="local-dev-jwt-secret-key-12345" PYTHONPATH=. python -m pytest -v
        python seed.py
        rm -f dev.db
        if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
-         pip install --no-cache-dir pytest httpx websockets
+         pip install --no-cache-dir pytest httpx websockets pyyaml
          PYTHONPATH=. python -m pytest -v
        fi
      '
    ```
-```bash
-docker build -t coffee-backend:local backend
-docker run --rm --entrypoint find coffee-backend:local /app -mindepth 1 -maxdepth 3 | sort
-
-cd backend
-tar -cf - seed.py cloudbuild.yaml .env.example tests | docker run --rm -i \
-  -e JWT_SECRET="cloudbuild-test-jwt-secret-key" \
-  coffee-backend:local \
-  sh -ceu '
-    tar -xf - -C /app
-    unset DATABASE_URL
-    python -c "import app.main"
-    python seed.py
-    rm -f dev.db
-    if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
-      pip install --no-cache-dir pytest httpx websockets pyyaml
-      PYTHONPATH=. python -m pytest -v
-    fi
-  '
-```
 
 ### 6. Frontend Setup, Typecheck, Lint, Format, and Tests (`frontend/`)
 
