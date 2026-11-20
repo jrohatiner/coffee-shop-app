@@ -389,7 +389,11 @@ def test_bootstrap_script_synchronized_with_hardened_templates():
 
 
 def test_gitignore_tracks_env_example_and_docs_exist():
-    assert "psycopg2-binary" in REQUIREMENTS_PATH.read_text().splitlines()
+    req_lines = REQUIREMENTS_PATH.read_text().splitlines()
+    assert any(
+        re.match(r"^psycopg2-binary(?:\s*$|[=<>!~])", line.strip())
+        for line in req_lines
+    )
     if not (REPO_ROOT / ".git").exists():
         pytest.skip("Git metadata absent in standalone container context")
     gitignore_lines = [line.strip() for line in GITIGNORE_PATH.read_text().splitlines()]
@@ -422,7 +426,6 @@ def test_gitignore_tracks_env_example_and_docs_exist():
     )
     assert check_ignore_real_env.returncode == 0
 
-    assert "psycopg2-binary" in REQUIREMENTS_PATH.read_text().splitlines()
     assert AGENTS_MD_PATH.is_file()
     agents_text = AGENTS_MD_PATH.read_text()
     assert "backend/.env.example" in agents_text
