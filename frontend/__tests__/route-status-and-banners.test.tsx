@@ -20,9 +20,14 @@ import Orders from '../pages/orders'
 import Inventory from '../pages/inventory'
 
 function makeValidJwt(): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
-    JSON.stringify({ sub: 'manager@coffee.test', exp: Math.floor(Date.now() / 1000) + 3600 })
+    JSON.stringify({
+      sub: 'manager@coffee.test',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    })
   ).toString('base64url')
   return `${header}.${payload}.sig`
 }
@@ -154,14 +159,17 @@ describe('Route status live regions and FormErrorBanner alerts', () => {
 
       // Resolve daily with rows
       await act(async () => {
-        dailyReq.resolve({ data: [{ id: 1, report_type: 'daily', total_sales: 125.5 }] })
+        dailyReq.resolve({
+          data: [{ id: 1, report_type: 'daily', total_sales: 125.5 }],
+        })
         await flushPromises()
       })
       assert.match(view.container.textContent, /DAILY/)
       assert.match(view.container.textContent, /\$125\.50/)
 
       // Switch to Weekly tab: prior daily rows clear immediately while weekly is in flight
-      const [, weeklyTab, monthlyTab] = view.container.querySelectorAll('[role="tab"]')
+      const [, weeklyTab, monthlyTab] =
+        view.container.querySelectorAll('[role="tab"]')
       fireClick(weeklyTab)
       assert.equal(view.document.activeElement, weeklyTab)
       assert.doesNotMatch(view.container.textContent, /\$125\.50/)
@@ -171,7 +179,9 @@ describe('Route status live regions and FormErrorBanner alerts', () => {
 
       // Reject weekly: renders FormErrorBanner (role="alert") and preserves focus on weeklyTab
       await act(async () => {
-        weeklyReq.reject({ response: { data: { detail: 'Report service offline' } } })
+        weeklyReq.reject({
+          response: { data: { detail: 'Report service offline' } },
+        })
         await flushPromises()
       })
       const alertBanner = view.container.querySelector('[role="alert"]')
@@ -188,8 +198,14 @@ describe('Route status live regions and FormErrorBanner alerts', () => {
         await flushPromises()
       })
       const emptyStatus = view.container.querySelector('[role="status"]')
-      assert.ok(emptyStatus, 'announces empty monthly reports via role="status"')
-      assert.match(emptyStatus.textContent, /No monthly sales reports available/i)
+      assert.ok(
+        emptyStatus,
+        'announces empty monthly reports via role="status"'
+      )
+      assert.match(
+        emptyStatus.textContent,
+        /No monthly sales reports available/i
+      )
       assert.equal(view.document.activeElement, monthlyTab)
     } finally {
       view.unmount()
@@ -197,7 +213,10 @@ describe('Route status live regions and FormErrorBanner alerts', () => {
   })
 
   it('Orders exposes role="status" on empty results and pagination counts, and renders FormErrorBanner when /inventory fails', async () => {
-    const ordersReq = deferred<{ data: any[]; headers?: Record<string, string> }>()
+    const ordersReq = deferred<{
+      data: any[]
+      headers?: Record<string, string>
+    }>()
     const inventoryReq = deferred<{ data: any[] }>()
 
     api.get = ((url: string) => {
@@ -221,7 +240,9 @@ describe('Route status live regions and FormErrorBanner alerts', () => {
 
       await act(async () => {
         ordersReq.resolve({ data: [], headers: { 'x-has-more': 'false' } })
-        inventoryReq.reject({ response: { data: { detail: 'Inventory service unavailable' } } })
+        inventoryReq.reject({
+          response: { data: { detail: 'Inventory service unavailable' } },
+        })
         await flushPromises()
       })
 
@@ -285,7 +306,9 @@ describe('Route status live regions and FormErrorBanner alerts', () => {
       assert.match(getText(loadingNodes[0]), /Loading inventory/i)
 
       await act(async () => {
-        secondLoad.reject({ response: { data: { detail: 'Failed to fetch inventory list' } } })
+        secondLoad.reject({
+          response: { data: { detail: 'Failed to fetch inventory list' } },
+        })
         await flushPromises()
       })
 

@@ -5,13 +5,11 @@ import api from '../lib/api'
 import Button from '../components/ui/Button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs'
 import FormErrorBanner from '../components/ui/FormErrorBanner'
+import { getApiErrorDetail, type SalesReportOut } from '../types/api'
 
 type ReportTab = 'daily' | 'weekly' | 'monthly'
 
-export type SalesReport = {
-  id: number
-  report_type: string
-  total_sales: number
+export type SalesReport = Omit<SalesReportOut, 'created_at'> & {
   created_at?: string
 }
 
@@ -32,7 +30,13 @@ const isReportTab = (value: string): value is ReportTab =>
 const createInitialTabStates = (): Record<ReportTab, TabPageState> => ({
   daily: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
   weekly: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
-  monthly: { items: [], page: 1, hasMore: false, loadedPage: null, error: null },
+  monthly: {
+    items: [],
+    page: 1,
+    hasMore: false,
+    loadedPage: null,
+    error: null,
+  },
 })
 
 const isCanceledRequest = (err: unknown): boolean => {
@@ -62,7 +66,8 @@ export const ReportsPagination = memo(function ReportsPagination({
   return (
     <div className="flex items-center justify-between pt-2">
       <div className="text-sm text-gray-700">
-        Page {page} · Showing {reportsCount} {reportsCount === 1 ? 'report' : 'reports'}
+        Page {page} · Showing {reportsCount}{' '}
+        {reportsCount === 1 ? 'report' : 'reports'}
       </div>
       <div className="flex items-center gap-2">
         <Button
@@ -120,7 +125,7 @@ export default function Reports() {
     }
 
     Promise.resolve(
-      api.get(`/reports/${targetTab}`, {
+      api.get<SalesReport[]>(`/reports/${targetTab}`, {
         params: { limit: DEFAULT_PAGE_SIZE, offset },
         signal: controller.signal,
       })
@@ -146,7 +151,7 @@ export default function Reports() {
           },
         }))
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         settled = true
         if (
           isCanceledRequest(err) ||
@@ -155,7 +160,8 @@ export default function Reports() {
         ) {
           return
         }
-        const detail = err?.response?.data?.detail
+        const fallback = `Failed to load ${targetTab} sales reports`
+        const detail = getApiErrorDetail(err, fallback)
         setTabStates((prev) => ({
           ...prev,
           [targetTab]: {
@@ -163,10 +169,7 @@ export default function Reports() {
             items: [],
             hasMore: false,
             loadedPage: null,
-            error:
-              typeof detail === 'string' && detail.trim()
-                ? detail
-                : `Failed to load ${targetTab} sales reports`,
+            error: detail.trim() || fallback,
           },
         }))
       })
@@ -229,7 +232,8 @@ export default function Reports() {
         {REPORT_TABS.map((period) => {
           const periodState = tabStates[period]
           const isLoading =
-            periodState.loadedPage !== periodState.page && periodState.error === null
+            periodState.loadedPage !== periodState.page &&
+            periodState.error === null
           const visibleItems =
             isLoading || periodState.error ? [] : periodState.items
 
@@ -247,17 +251,22 @@ export default function Reports() {
                     </div>
                   )}
                   {!isLoading && periodState.error && (
-                    <FormErrorBanner className="mt-4" message={periodState.error} />
+                    <FormErrorBanner
+                      className="mt-4"
+                      message={periodState.error}
+                    />
                   )}
-                  {!isLoading && !periodState.error && visibleItems.length === 0 && (
-                    <div
-                      role="status"
-                      aria-live="polite"
-                      className="mt-4 text-sm text-gray-700"
-                    >
-                      No {period} sales reports available.
-                    </div>
-                  )}
+                  {!isLoading &&
+                    !periodState.error &&
+                    visibleItems.length === 0 && (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className="mt-4 text-sm text-gray-700"
+                      >
+                        No {period} sales reports available.
+                      </div>
+                    )}
                   <ul
                     className={
                       visibleItems.length > 0 ? 'mt-4 space-y-2' : 'hidden'
@@ -273,7 +282,9 @@ export default function Reports() {
                   <ReportsPagination
                     page={periodState.page}
                     reportsCount={visibleItems.length}
-                    hasMore={!isLoading && !periodState.error && periodState.hasMore}
+                    hasMore={
+                      !isLoading && !periodState.error && periodState.hasMore
+                    }
                     onPrevPage={handlePrevPage}
                     onNextPage={handleNextPage}
                   />

@@ -57,7 +57,10 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           <label
             id={computedLabelId}
             htmlFor={selectId}
-            className={twMerge('block text-sm font-medium text-gray-800', labelClassName)}
+            className={twMerge(
+              'block text-sm font-medium text-gray-800',
+              labelClassName
+            )}
           >
             {label}
           </label>

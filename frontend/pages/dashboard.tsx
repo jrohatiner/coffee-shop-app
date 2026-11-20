@@ -4,11 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import api from '../lib/api'
 import { formatOrderDate } from '../lib/dateFormat'
 import FormErrorBanner from '../components/ui/FormErrorBanner'
-
-type DashboardSummary = {
-  totalSales?: number
-  recentOrders?: any[]
-}
+import { type DashboardSummary, getApiErrorDetail } from '../types/api'
 
 export default function Dashboard() {
   const user = useAuth()
@@ -19,13 +15,12 @@ export default function Dashboard() {
 
   const recentOrders = useMemo(
     () =>
-      (summary?.recentOrders ?? []).map((o: any) => ({
+      (summary?.recentOrders ?? []).map((o) => ({
         order: o,
         formattedCreatedAt: formatOrderDate(o.created_at),
       })),
     [summary?.recentOrders]
   )
-
   useEffect(() => {
     if (!username) return
     let active = true
@@ -33,22 +28,19 @@ export default function Dashboard() {
     setError(null)
 
     api
-      .get('/dashboard/summary')
+      .get<DashboardSummary>('/dashboard/summary')
       .then((r) => {
         if (!active) return
         setSummary(r.data)
         setError(null)
         setIsLoading(false)
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if (!active) return
-        const detail = err?.response?.data?.detail
+        const fallback = 'Failed to load dashboard summary'
+        const detail = getApiErrorDetail(err, fallback)
         setSummary(null)
-        setError(
-          typeof detail === 'string' && detail.trim()
-            ? detail
-            : 'Failed to load dashboard summary'
-        )
+        setError(detail.trim() || fallback)
         setIsLoading(false)
       })
 
@@ -72,12 +64,14 @@ export default function Dashboard() {
         <>
           <div className="p-4 border rounded">
             <h2 className="font-semibold">Total Sales</h2>
-            <div className="text-2xl">${summary.totalSales?.toFixed?.(2) ?? 0}</div>
+            <div className="text-2xl">
+              ${summary.totalSales?.toFixed?.(2) ?? 0}
+            </div>
           </div>
           <div className="p-4 border rounded">
             <h2 className="font-semibold">Recent Orders</h2>
             <ul className="list-disc ml-5">
-              {recentOrders.map(({ order: o, formattedCreatedAt }: any) => (
+              {recentOrders.map(({ order: o, formattedCreatedAt }) => (
                 <li key={o.id}>
                   #{o.id} — {o.status} — {formattedCreatedAt}
                 </li>

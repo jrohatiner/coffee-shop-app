@@ -24,7 +24,7 @@ python-socketio[asgi]
 EOF
 
 cat > backend/Dockerfile << 'EOF'
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -33,24 +33,162 @@ ENV PORT=8080
 CMD ["uvicorn", "app.main:app", "--host","0.0.0.0","--port","8080"]
 EOF
 
+cat > backend/.dockerignore << 'EOF'
+# Build, CI/CD, and local scripts
+Dockerfile
+.dockerignore
+cloudbuild.yaml
+seed.py
+app/routers/_init_.py
+tests/
+
+# Git metadata
+.git/
+.gitignore
+
+# Python bytecode, virtualenvs, packaging, and local databases
+__pycache__/
+**/__pycache__/
+*.pyc
+**/*.pyc
+*.pyo
+**/*.pyo
+*.pyd
+**/*.pyd
+*.db
+**/*.db
+*.sqlite3
+**/*.sqlite3
+.venv/
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+**/*.log
+
+# Environment and secret files
+.env
+.env*
+.env.*
+
+# Frontend / Node artifacts
+node_modules/
+.next/
+out/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+*.code-workspace
+
+# Coverage and test caches
+.coverage
+htmlcov/
+pytest_cache/
+.pytest_cache/
+playwright-report/
+test-results/
+EOF
+
 cat > backend/cloudbuild.yaml << 'EOF'
 steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend','.']
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend']
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+  - id: 'build-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
     args:
-      [
-        'run','deploy','coffee-backend',
-        '--image','${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend',
-        '--region','${_REGION}',
-        '--platform','managed',
-        '--allow-unauthenticated',
-        '--add-cloudsql-instances','${_CLOUD_SQL_INSTANCE}',
-        '--set-env-vars','DATABASE_URL=postgresql://postgres:${_DB_PASS}@localhost:5432/coffee,INSTANCE_UNIX_SOCKET=${_CLOUD_SQL_INSTANCE},JWT_SECRET=${_JWT_SECRET}'
-      ]
+      - '-c'
+      - |
+        set -euo pipefail
+        TAGS=("-t" "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID")
+        if [ -n "$COMMIT_SHA" ]; then
+          TAGS+=("-t" "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$COMMIT_SHA")
+        fi
+        docker build "$${TAGS[@]}" .
+  - id: 'test-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        TEST_PATHS=()
+        [ -f seed.py ] && TEST_PATHS+=("seed.py")
+        [ -d tests ] && TEST_PATHS+=("tests")
+        if [ "$${#TEST_PATHS[@]}" -gt 0 ]; then
+          tar -cf - "$${TEST_PATHS[@]}"
+        else
+          tar -cf - --files-from /dev/null
+        fi | docker run --rm -i \
+          -e JWT_SECRET=cloudbuild-test-jwt-secret-key \
+          "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" \
+          sh -ceu '
+            tar -xf - -C /app
+            unset DATABASE_URL
+            python -c "import app.main"
+            if [ -f seed.py ]; then
+              python seed.py
+            fi
+            rm -f dev.db
+            if [ -d tests ] && ls tests/test_*.py >/dev/null 2>&1; then
+              pip install --no-cache-dir pytest httpx websockets
+              PYTHONPATH=. python -m pytest -v
+            fi
+          '
+  - id: 'push-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        docker push "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID"
+        if [ -n "$COMMIT_SHA" ]; then
+          docker push "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$COMMIT_SHA"
+        fi
+        IMAGE_DIGEST="$$(docker image inspect "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" --format='{{range .RepoDigests}}{{println .}}{{end}}' | grep -F "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend@sha256:" | head -n 1 || true)"
+        if [ -z "$$IMAGE_DIGEST" ]; then
+          echo "Error: failed to resolve pushed @sha256: digest for ${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID" >&2
+          exit 1
+        fi
+        printf '%s\n' "$$IMAGE_DIGEST" > /workspace/image-digest.txt
+  - id: 'deploy-cloud-run'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    env:
+      - 'REGION=${_REGION}'
+      - 'CLOUD_SQL_INSTANCE=${_CLOUD_SQL_INSTANCE}'
+      - 'DB_PASS=${_DB_PASS}'
+      - 'JWT_SECRET=${_JWT_SECRET}'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE_DIGEST="$$(tr -d '[:space:]' < /workspace/image-digest.txt)"
+        if [[ "$$IMAGE_DIGEST" != "${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend@sha256:"* ]]; then
+          echo "Error: expected immutable @sha256: digest in /workspace/image-digest.txt, got '$$IMAGE_DIGEST'" >&2
+          exit 1
+        fi
+        gcloud run deploy coffee-backend \
+          --image "$$IMAGE_DIGEST" \
+          --region "$$REGION" \
+          --platform managed \
+          --allow-unauthenticated \
+          --add-cloudsql-instances "$$CLOUD_SQL_INSTANCE" \
+          --set-env-vars "DATABASE_URL=postgresql://postgres:$${DB_PASS}@localhost:5432/coffee,INSTANCE_UNIX_SOCKET=$${CLOUD_SQL_INSTANCE},JWT_SECRET=$${JWT_SECRET}"
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/coffee-repo/coffee-backend:$BUILD_ID'
+options:
+  requestedVerifyOption: VERIFIED
 substitutions:
   _REGION: 'us-central1'
   _CLOUD_SQL_INSTANCE: 'YOUR_PROJECT_ID:us-central1:coffee-db'

@@ -1,10 +1,10 @@
 import asyncio
 import os
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -90,6 +90,7 @@ def pool_env(tmp_path):
     finally:
         seed_db.close()
 
+    assert isinstance(test_engine.pool, QueuePool)
     assert test_engine.pool.checkedout() == 0
     try:
         yield test_engine
@@ -335,7 +336,9 @@ def test_inventory_latency_under_16_concurrent_logins(pool_env, monkeypatch):
             ]
 
             reached = await asyncio.to_thread(all_logins_hashing.wait, 5.0)
-            assert reached, "Expected all 16 logins to enter verify_password concurrently"
+            assert reached, (
+                "Expected all 16 logins to enter verify_password concurrently"
+            )
 
             t0 = time.perf_counter()
             inv_resp = await client.get(
@@ -355,7 +358,8 @@ def test_inventory_latency_under_16_concurrent_logins(pool_env, monkeypatch):
     ]
     assert checkedout_when_all_hashing == [0]
     assert inventory_ms < 250.0, (
-        f"Expected GET /inventory/ to stay fast during 16-login burst, got {inventory_ms:.2f} ms"
+        "Expected GET /inventory/ to stay fast during 16-login burst, "
+        f"got {inventory_ms:.2f} ms"
     )
     assert all(r.status_code == 200 for r in login_responses)
     assert pool_env.pool.checkedout() == 0
@@ -397,26 +401,22 @@ def test_dependency_override_get_db_preserved(tmp_path, monkeypatch):
         finally:
             db.close()
 
-    checkedout_samples = []
+    assert isinstance(override_engine.pool, QueuePool)
+    override_pool = override_engine.pool
+    checkedout_samples: list[tuple[str, int]] = []
     orig_verify = auth.verify_password
     orig_hash = auth.get_password_hash
 
-    monkeypatch.setattr(
-        auth,
-        "verify_password",
-        lambda p, h: (
-            checkedout_samples.append(("verify", override_engine.pool.checkedout()))
-            or orig_verify(p, h)
-        ),
-    )
-    monkeypatch.setattr(
-        users_router,
-        "get_password_hash",
-        lambda p: (
-            checkedout_samples.append(("hash", override_engine.pool.checkedout()))
-            or orig_hash(p)
-        ),
-    )
+    def _spy_verify(plain: str, hashed: str) -> bool:
+        checkedout_samples.append(("verify", override_pool.checkedout()))
+        return orig_verify(plain, hashed)
+
+    def _spy_hash(plain: str) -> str:
+        checkedout_samples.append(("hash", override_pool.checkedout()))
+        return orig_hash(plain)
+
+    monkeypatch.setattr(auth, "verify_password", _spy_verify)
+    monkeypatch.setattr(users_router, "get_password_hash", _spy_hash)
 
     app.dependency_overrides[get_db] = override_get_db
     try:
@@ -444,4 +444,3 @@ def test_dependency_override_get_db_preserved(tmp_path, monkeypatch):
         override_engine.dispose()
 
     assert checkedout_samples == [("verify", 0), ("hash", 0)]
-

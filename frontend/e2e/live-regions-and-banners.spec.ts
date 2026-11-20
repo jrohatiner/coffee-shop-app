@@ -1,7 +1,9 @@
 import { expect, Page, test } from '@playwright/test'
 
 function createMockJwt(): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' })
+  ).toString('base64url')
   const payload = Buffer.from(
     JSON.stringify({
       sub: 'manager@coffeeshop.example',
@@ -49,14 +51,18 @@ test.describe('Unified live-region toasts and async route banners', () => {
     await signInButton.focus()
     await signInButton.click()
 
-    const toastCard = assertiveRegion.locator('[data-toast-variant="destructive"]')
+    const toastCard = assertiveRegion.locator(
+      '[data-toast-variant="destructive"]'
+    )
     await expect(toastCard).toBeVisible()
     await expect(toastCard).toContainText('Login failed')
     await expect(toastCard).toContainText('Invalid credentials')
     await expect(toastCard).toHaveClass(/\bborder-control\b/)
-    await expect(toastCard.getByRole('button', { name: 'Dismiss Login failed notification' })).toHaveClass(
-      /\bborder-control\b/
-    )
+    await expect(
+      toastCard.getByRole('button', {
+        name: 'Dismiss Login failed notification',
+      })
+    ).toHaveClass(/\bborder-control\b/)
 
     // Keyboard focus must NOT move automatically when toast appears (WCAG 4.1.3)
     await expect(signInButton).toBeFocused()
@@ -86,18 +92,25 @@ test.describe('Unified live-region toasts and async route banners', () => {
       releaseFailure = resolve
     })
 
-    await page.route('http://localhost:8000/dashboard/summary', async (route) => {
-      await holdRequest
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Summary service unavailable' }),
-      })
-    })
+    await page.route(
+      'http://localhost:8000/dashboard/summary',
+      async (route) => {
+        await holdRequest
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Summary service unavailable' }),
+        })
+      }
+    )
 
     await page.goto('/dashboard')
-    await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible()
-    await expect(page.locator('main [role="status"]')).toContainText('Loading dashboard summary...')
+    await expect(
+      page.getByRole('heading', { name: 'Dashboard', level: 1 })
+    ).toBeVisible()
+    await expect(page.locator('main [role="status"]')).toContainText(
+      'Loading dashboard summary...'
+    )
     await expect(page.locator('main')).not.toContainText('$0')
 
     releaseFailure()
@@ -122,7 +135,9 @@ test.describe('Unified live-region toasts and async route banners', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ id: 1, report_type: 'daily', total_sales: 240.75 }]),
+        body: JSON.stringify([
+          { id: 1, report_type: 'daily', total_sales: 240.75 },
+        ]),
       })
     })
 
@@ -135,13 +150,16 @@ test.describe('Unified live-region toasts and async route banners', () => {
       })
     })
 
-    await page.route('http://localhost:8000/reports/monthly*', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      })
-    })
+    await page.route(
+      'http://localhost:8000/reports/monthly*',
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        })
+      }
+    )
 
     await page.goto('/reports')
     await expect(page.locator('main')).toContainText('$240.75')
@@ -152,7 +170,9 @@ test.describe('Unified live-region toasts and async route banners', () => {
 
     // Prior daily row clears immediately and status announces loading while focus stays on Weekly tab
     await expect(page.locator('main')).not.toContainText('$240.75')
-    await expect(page.locator('main [role="status"]')).toContainText('Loading weekly sales reports...')
+    await expect(page.locator('main [role="status"]')).toContainText(
+      'Loading weekly sales reports...'
+    )
     await expect(weeklyTab).toBeFocused()
 
     releaseWeekly()
@@ -165,7 +185,9 @@ test.describe('Unified live-region toasts and async route banners', () => {
     // Switching to Monthly announces empty status
     const monthlyTab = page.getByRole('tab', { name: 'Monthly' })
     await monthlyTab.click()
-    await expect(page.locator('main [role="status"]')).toContainText('No monthly sales reports available.')
+    await expect(page.locator('main [role="status"]')).toContainText(
+      'No monthly sales reports available.'
+    )
   })
 
   test('Orders and Inventory expose role="status" counts/empty states and render FormErrorBanner when /inventory fails', async ({
@@ -191,14 +213,24 @@ test.describe('Unified live-region toasts and async route banners', () => {
     })
 
     await page.goto('/orders')
-    await expect(page.locator('main [role="alert"]')).toHaveText('Inventory database unreachable')
-    await expect(page.locator('main [role="status"]', { hasText: 'No orders found.' })).toBeVisible()
+    await expect(page.locator('main [role="alert"]')).toHaveText(
+      'Inventory database unreachable'
+    )
     await expect(
-      page.locator('main [role="status"]', { hasText: 'Page 1 · Showing 0 orders' })
+      page.locator('main [role="status"]', { hasText: 'No orders found.' })
+    ).toBeVisible()
+    await expect(
+      page.locator('main [role="status"]', {
+        hasText: 'Page 1 · Showing 0 orders',
+      })
     ).toBeVisible()
 
     await page.goto('/inventory')
-    await expect(page.getByRole('heading', { name: 'Inventory', level: 1 })).toBeVisible()
-    await expect(page.locator('main [role="alert"]')).toHaveText('Inventory database unreachable')
+    await expect(
+      page.getByRole('heading', { name: 'Inventory', level: 1 })
+    ).toBeVisible()
+    await expect(page.locator('main [role="alert"]')).toHaveText(
+      'Inventory database unreachable'
+    )
   })
 })
